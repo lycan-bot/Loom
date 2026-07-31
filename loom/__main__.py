@@ -10,7 +10,7 @@ Usage:
 """
 from __future__ import annotations
 import sys
-from . import config, narrate, consolidate, seal, transcript, canon, state, llm
+from . import config, narrate, consolidate, seal, transcript, canon, state, llm, threads
 
 
 def _paths(cfg):
@@ -96,6 +96,7 @@ def cmd_status(cfg):
     print(f"transcript: {len(transcript.read_all(tpath))} lines")
     print(f"canon     : {len(canon.load_all(world))} nodes")
     print(f"state     : {len(state.load(spath))} facts")
+    print(f"threads   : {len([t for t in threads.load(spath.parent / 'threads.json') if t.status != 'resolved'])} pending")
 
 
 def main(argv=None):

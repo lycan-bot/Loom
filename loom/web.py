@@ -10,7 +10,7 @@ import json
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from . import config, canon, state, transcript, narrate, consolidate, llm
+from . import config, canon, state, transcript, narrate, consolidate, llm, threads
 
 STATIC = Path(__file__).resolve().parent / "static"
 
@@ -52,11 +52,15 @@ def make_handler(cfg: dict):
                 return self._send(200, (STATIC / "index.html").read_bytes(),
                                   "text/html; charset=utf-8")
             if u.path == "/api/state":
+                th = threads.load(spath.parent / "threads.json")
                 return self._send(200, {
                     "campaign": cfg["campaign"],
                     "model": cfg["llm_url"],
                     "canon": _graph(world)["nodes"],
                     "state": state.load(spath),
+                    "threads": [{"question": t.question, "status": t.status,
+                                 "readiness": round(t.readiness, 2)} for t in th
+                                if t.status != "resolved"],
                     "transcript": transcript.recent(tpath, 60),
                 })
             if u.path == "/api/graph":

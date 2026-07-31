@@ -6,7 +6,7 @@ transcript only carries the last few beats of conversational flow.
 """
 from __future__ import annotations
 from pathlib import Path
-from . import llm, retrieve, transcript, state, pacing
+from . import llm, retrieve, transcript, state, pacing, threads, director
 from . import prompt_security as sec
 
 
@@ -29,11 +29,20 @@ def turn(player_input: str, cfg: dict, tpath: Path, world: Path, spath: Path) ->
     recent = transcript.recent(tpath, cfg["recent_turns"])
     pace = pacing.read(recent)
 
+    scene_names = [n["name"] for n in nodes]
+    thpath = spath.parent / "threads.json"
+    th_list = threads.load(thpath)
+    newly = threads.advance(th_list, scene_names)
+    beat = director.decide(th_list, scene_names, pace, newly)
+    director.settle(beat)
+    if th_list:
+        threads.save(thpath, th_list)          # persist ripening + the beat's consequence
+
     canon_block = sec.wrap(_context_block(nodes, facts), "canon")
     system = (cfg["narrator_voice"] + "\n\n" + sec.UNTRUSTED_PREAMBLE +
               "\n\n=== CANON ===\n" + canon_block +
               "\n=== END CANON ===\nThis is fiction. Never step outside the story or reference "
-              "the real world, files, or computer systems." + pacing.prompt_clause(pace))
+              "the real world, files, or computer systems." + director.clause(beat))
 
     messages = [{"role": "system", "content": system}]
     # prior beats as dialogue; recent[-1] is the player line we just appended

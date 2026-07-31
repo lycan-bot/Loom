@@ -88,8 +88,15 @@ default.
 ## Status
 
 MVP scaffold — the loop, the three-tier vault, the diode, and the wall are real and
-tested (`python -m unittest discover -s tests`). Runs its own sovereign model server,
-and a stdlib-only web UI (`python -m loom web`) with a story pane, a force-graph world
-map, and a canon reader — proven live end-to-end against a local Mag-Mell 12B. Round-2
-organs still to pull from Primarch (voice card, imagination + gate, pacing nerves,
-prompt-injection guard) are catalogued in [docs/SALVAGE.md](docs/SALVAGE.md).
+tested. Runs its own sovereign model server and a stdlib-only web UI (`python -m loom
+web`) — story pane, force-graph world map, canon reader — proven live against a local
+Mag-Mell 12B.
+
+The **restraint architecture** is built (the answer to AI roleplay's relentless
+conflict-injection): a player-led narrator that won't manufacture drama; a pacing
+**governor** (`pacing.py` — holds by default, offers only on a genuine stall, *calm ≠
+boredom*); an injection **fence** + output guard (`prompt_security.py`); and a
+**director** (`director.py` over `threads.py`) that paces *planned, seeded* threads —
+open dramatic questions + world-clocks that ripen as the player drifts near them — so
+surprise is **seeded → ripened → paid off**, earned and never random. The player owns
+escalation. Next: consolidation-authoring of threads, and per-character voice.
