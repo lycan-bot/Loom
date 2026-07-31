@@ -14,8 +14,15 @@ Lifecycle:  dormant → seeded → ripening → ready → resolved
 """
 from __future__ import annotations
 import json
+import re
 from dataclasses import dataclass, field, asdict, fields
 from pathlib import Path
+
+
+def make_id(text: str) -> str:
+    """A stable, readable thread id from its question (first few words)."""
+    words = re.findall(r"[a-z0-9]+", (text or "").lower())
+    return "-".join(words[:6]) or "thread"
 
 READY = 0.7          # readiness at which a thread may pay off
 NEAR = 0.30          # readiness gained per beat while the player is near its subject

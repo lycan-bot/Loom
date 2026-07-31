@@ -1,0 +1,70 @@
+"""Consolidation authors threads: the archivist proposes new dramatic questions and
+resolutions from play; apply writes them only with approval, and dedups. Offline."""
+import json
+import tempfile
+import unittest
+from pathlib import Path
+from loom import consolidate, threads, llm
+from loom.threads import Thread
+
+_CFG = {"llm_url": "x", "llm_model": "m", "api_key": "k",
+        "max_tokens": 10, "temperature": 0.0, "request_timeout": 1}
+
+
+def _camp():
+    d = Path(tempfile.mkdtemp())
+    (d / "world").mkdir()
+    return d
+
+
+class ProposeTest(unittest.TestCase):
+    def test_propose_parses_thread_fields(self):
+        payload = json.dumps({"nodes": [], "state": {}, "summary": "s",
+                              "threads_new": [{"question": "who lit the beacon?", "entities": ["Beacon"]}],
+                              "threads_resolved": ["old-q"]})
+        orig = llm.complete
+        llm.complete = lambda *a, **k: "sure, here: " + payload
+        try:
+            out = consolidate.propose(_CFG, [{"role": "player", "text": "hi"}], [Thread("old-q", "q")])
+        finally:
+            llm.complete = orig
+        self.assertEqual(out["threads_new"][0]["question"], "who lit the beacon?")
+        self.assertEqual(out["threads_resolved"], ["old-q"])
+        self.assertEqual(out["nodes"], [])            # defaults still fill
+
+
+class ApplyThreadsTest(unittest.TestCase):
+    def test_adds_new_thread_on_approval(self):
+        camp = _camp()
+        prop = {"threads_new": [{"question": "What haunts the mill?", "entities": ["Mill"],
+                                 "seed": "a cold draft", "payoff": "a face at the window"}]}
+        w = consolidate.apply(prop, camp / "world", camp / "state.json", approve=lambda *a: True)
+        th = threads.load(camp / "threads.json")
+        self.assertEqual([t.question for t in th], ["What haunts the mill?"])
+        self.assertEqual(th[0].status, "dormant")
+        self.assertEqual(w["threads"], ["What haunts the mill?"])
+
+    def test_writes_nothing_without_approval(self):
+        camp = _camp()
+        consolidate.apply({"threads_new": [{"question": "q?"}]}, camp / "world",
+                          camp / "state.json", approve=lambda *a: False)
+        self.assertEqual(threads.load(camp / "threads.json"), [])
+
+    def test_resolves_existing_thread(self):
+        camp = _camp()
+        threads.save(camp / "threads.json", [Thread("mill-q", "What haunts the mill?")])
+        consolidate.apply({"threads_resolved": ["mill-q"]}, camp / "world",
+                          camp / "state.json", approve=lambda *a: True)
+        self.assertEqual(threads.load(camp / "threads.json")[0].status, "resolved")
+
+    def test_dedups_by_id(self):
+        camp = _camp()
+        tid = threads.make_id("What haunts the mill?")
+        threads.save(camp / "threads.json", [Thread(tid, "What haunts the mill?")])
+        consolidate.apply({"threads_new": [{"question": "What haunts the mill?"}]},
+                          camp / "world", camp / "state.json", approve=lambda *a: True)
+        self.assertEqual(len(threads.load(camp / "threads.json")), 1)     # not duplicated
+
+
+if __name__ == "__main__":
+    unittest.main()

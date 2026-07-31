@@ -159,11 +159,15 @@ $("consolidate").addEventListener("click",async()=>{
   const p=await (await fetch("/api/consolidate",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"})).json();
   if(p.error){addTurn("sys","⚠ "+p.error);return;}
   const names=(p.nodes||[]).map(n=>n.name);
-  if(!names.length){addTurn("sys","nothing new to fold into canon.");return;}
-  if(!confirm(`Fold into canon?\n\nnodes: ${names.join(", ")}\nstate: ${Object.keys(p.state||{}).join(", ")||"—"}\n\n${p.summary||""}`))return;
+  const stateKeys=Object.keys(p.state||{});
+  const tnew=(p.threads_new||[]).map(t=>t.question);
+  const tres=(p.threads_resolved||[]);
+  if(!names.length&&!stateKeys.length&&!tnew.length&&!tres.length){addTurn("sys","nothing new to fold in.");return;}
+  const msg=`Fold into canon?\n\ncanon: ${names.join(", ")||"—"}\nstate: ${stateKeys.join(", ")||"—"}\nnew threads: ${tnew.join("  |  ")||"—"}\nresolved: ${tres.join(", ")||"—"}\n\n${p.summary||""}`;
+  if(!confirm(msg))return;
   await fetch("/api/consolidate/apply",{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({proposals:p,approved_nodes:names,approved_state:Object.keys(p.state||{})})});
-  addTurn("sys",`canon updated: +${names.length} node(s).`);
+    body:JSON.stringify({proposals:p,approved_nodes:names,approved_state:stateKeys,approved_threads:tnew,approved_resolved:tres})});
+  addTurn("sys",`folded: +${names.length} node(s), +${tnew.length} thread(s), ${tres.length} resolved.`);
   await loadState();
 });
 

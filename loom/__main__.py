@@ -49,8 +49,10 @@ def cmd_consolidate(cfg, auto):
         print("nothing to consolidate.")
         return
     print("reading the session log…")
-    proposals = consolidate.propose(cfg, lines)
-    print(f"proposed: {len(proposals['nodes'])} node(s), {len(proposals['state'])} state change(s)")
+    existing = threads.load(spath.parent / "threads.json")
+    proposals = consolidate.propose(cfg, lines, existing)
+    print(f"proposed: {len(proposals['nodes'])} node(s), {len(proposals['state'])} state, "
+          f"{len(proposals['threads_new'])} new thread(s), {len(proposals['threads_resolved'])} resolved")
     if proposals.get("summary"):
         print(f"summary: {proposals['summary']}")
     print()
@@ -62,7 +64,8 @@ def cmd_consolidate(cfg, auto):
         return input(f"  keep {kind} '{name}'? [y/N] ").strip().lower() in ("y", "yes")
 
     written = consolidate.apply(proposals, world, spath, approve)
-    print(f"\nwrote {len(written['nodes'])} node(s), {len(written['state'])} state key(s) to canon.")
+    print(f"\nwrote {len(written['nodes'])} node(s), {len(written['state'])} state, "
+          f"{len(written['threads'])} thread(s), {len(written['resolved'])} resolved.")
     problems = seal.check_campaign(world, spath)
     if problems:
         print("[!] SEAL WARNING:", *problems, sep="\n  ")

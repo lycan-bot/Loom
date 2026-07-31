@@ -93,18 +93,22 @@ def make_handler(cfg: dict):
             if u.path == "/api/consolidate":
                 lines = transcript.read_all(tpath)
                 if not lines:
-                    return self._send(200, {"nodes": [], "state": {}, "summary": "nothing to consolidate"})
+                    return self._send(200, {"nodes": [], "state": {}, "threads_new": [],
+                                            "threads_resolved": [], "summary": "nothing to consolidate"})
                 try:
-                    return self._send(200, consolidate.propose(cfg, lines))
+                    existing = threads.load(spath.parent / "threads.json")
+                    return self._send(200, consolidate.propose(cfg, lines, existing))
                 except Exception as e:
                     return self._send(502, {"error": str(e)})
             if u.path == "/api/consolidate/apply":
                 proposals = body.get("proposals") or {}
-                ok_nodes = set(body.get("approved_nodes") or [])
-                ok_state = set(body.get("approved_state") or [])
+                ok = {"node": set(body.get("approved_nodes") or []),
+                      "state": set(body.get("approved_state") or []),
+                      "thread": set(body.get("approved_threads") or []),
+                      "resolve": set(body.get("approved_resolved") or [])}
                 written = consolidate.apply(
                     proposals, world, spath,
-                    approve=lambda kind, name, _p: name in (ok_nodes if kind == "node" else ok_state))
+                    approve=lambda kind, name, _p: name in ok.get(kind, set()))
                 return self._send(200, {"written": written})
             return self._send(404, {"error": "not found"})
 
