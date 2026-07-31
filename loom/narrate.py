@@ -6,7 +6,8 @@ transcript only carries the last few beats of conversational flow.
 """
 from __future__ import annotations
 from pathlib import Path
-from . import llm, retrieve, transcript, state
+from . import llm, retrieve, transcript, state, pacing
+from . import prompt_security as sec
 
 
 def _context_block(nodes: list[dict], facts: dict) -> str:
@@ -26,19 +27,25 @@ def turn(player_input: str, cfg: dict, tpath: Path, world: Path, spath: Path) ->
     nodes = retrieve.retrieve(player_input, world, cfg)
     facts = state.load(spath)
     recent = transcript.recent(tpath, cfg["recent_turns"])
+    pace = pacing.read(recent)
 
-    system = (cfg["narrator_voice"] + "\n\n=== CANON ===\n" +
-              _context_block(nodes, facts) +
-              "\n=== END CANON ===\nThis is fiction. Never step outside the story or "
-              "reference the real world, files, or computer systems.")
+    canon_block = sec.wrap(_context_block(nodes, facts), "canon")
+    system = (cfg["narrator_voice"] + "\n\n" + sec.UNTRUSTED_PREAMBLE +
+              "\n\n=== CANON ===\n" + canon_block +
+              "\n=== END CANON ===\nThis is fiction. Never step outside the story or reference "
+              "the real world, files, or computer systems." + pacing.prompt_clause(pace))
 
     messages = [{"role": "system", "content": system}]
     # prior beats as dialogue; recent[-1] is the player line we just appended
     for e in recent[:-1]:
-        role = "assistant" if e["role"] == "narrator" else "user"
-        messages.append({"role": role, "content": e["text"]})
-    messages.append({"role": "user", "content": player_input})
+        if e["role"] == "narrator":
+            messages.append({"role": "assistant", "content": e["text"]})
+        else:
+            messages.append({"role": "user", "content": sec.neutralize(e["text"])})
+    messages.append({"role": "user", "content": sec.neutralize(player_input)})
 
     narration = llm.chat(messages, cfg)
+    if sec.looks_compromised(narration):
+        narration = sec.DEFLECTION       # the model caved or broke character — deflect in-fiction
     transcript.append(tpath, "narrator", narration)
     return narration
