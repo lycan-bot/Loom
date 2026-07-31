@@ -6,11 +6,12 @@ Usage:
   python -m loom consolidate [--yes]    fold this session's log into canon (with approval)
   python -m loom seal-check             verify nothing has leaked past the wall
   python -m loom new <name>             create a new campaign
+  python -m loom npcs                   sync character drives into relational threads
   python -m loom web [--port N]         browser UI (play + world map), default :8100
 """
 from __future__ import annotations
 import sys
-from . import config, narrate, consolidate, seal, transcript, canon, state, llm, threads
+from . import config, narrate, consolidate, seal, transcript, canon, state, llm, threads, npc
 
 
 def _paths(cfg):
@@ -102,6 +103,20 @@ def cmd_status(cfg):
     print(f"threads   : {len([t for t in threads.load(spath.parent / 'threads.json') if t.status != 'resolved'])} pending")
 
 
+def cmd_npcs(cfg):
+    _, world, spath = _paths(cfg)
+    ds = npc.drives(world)
+    if not ds:
+        print("no characters with a stated want (add 'wants:' to a character node's frontmatter).")
+        return
+    print("character drives:")
+    for name, m, _ents in ds:
+        print(f"  {name}: {m.because}" + ("   [in tension]" if m.tension else ""))
+    added = npc.sync(world, spath.parent / "threads.json")
+    print(f"\nsynced {len(added)} relational thread(s) into the plan"
+          + ("".join(f"\n  + {q}" for q in added) if added else "."))
+
+
 def main(argv=None):
     argv = argv if argv is not None else sys.argv[1:]
     cfg = config.load()
@@ -120,6 +135,8 @@ def main(argv=None):
         from . import web
         port = int(argv[argv.index("--port") + 1]) if "--port" in argv else 8100
         web.serve(cfg, port=port)
+    elif cmd == "npcs":
+        cmd_npcs(cfg)
     else:
         print(__doc__)
 
