@@ -10,7 +10,7 @@ import json
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from . import config, canon, state, transcript, narrate, consolidate, llm, threads, imagine
+from . import config, canon, state, transcript, narrate, consolidate, llm, threads, imagine, guard
 
 STATIC = Path(__file__).resolve().parent / "static"
 
@@ -65,6 +65,10 @@ def make_handler(cfg: dict):
                 })
             if u.path == "/api/graph":
                 return self._send(200, _graph(world))
+            if u.path == "/api/check":
+                fs = guard.check(world, spath.parent / "threads.json")
+                return self._send(200, {"findings": [{"severity": f.severity, "kind": f.kind,
+                                                       "message": f.message} for f in fs]})
             if u.path == "/api/node":
                 node = canon.read_node(world, (q.get("name") or [""])[0])
                 if not node:

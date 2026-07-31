@@ -5,6 +5,7 @@ Usage:
   python -m loom play                   interactive session
   python -m loom consolidate [--yes]    fold this session's log into canon (with approval)
   python -m loom seal-check             verify nothing has leaked past the wall
+  python -m loom check                  continuity guard — flag canon/plan inconsistencies
   python -m loom new <name>             create a new campaign
   python -m loom npcs                   sync character drives into relational threads
   python -m loom imagine [--yes]        dream new threads from the canon (imagination organ)
@@ -12,7 +13,7 @@ Usage:
 """
 from __future__ import annotations
 import sys
-from . import config, narrate, consolidate, seal, transcript, canon, state, llm, threads, npc, imagine
+from . import config, narrate, consolidate, seal, transcript, canon, state, llm, threads, npc, imagine, guard
 
 
 def _paths(cfg):
@@ -106,6 +107,17 @@ def cmd_status(cfg):
     print(f"threads   : {len([t for t in threads.load(spath.parent / 'threads.json') if t.status != 'resolved'])} pending")
 
 
+def cmd_check(cfg):
+    _, world, spath = _paths(cfg)
+    findings = guard.check(world, spath.parent / "threads.json")
+    if not findings:
+        print("continuity: clean ✓")
+        return
+    print(f"continuity — {len(findings)} finding(s):")
+    for f in findings:
+        print(f"  [{f.severity}] {f.kind}: {f.message}")
+
+
 def cmd_imagine(cfg, auto=False):
     _, world, spath = _paths(cfg)
     thpath = spath.parent / "threads.json"
@@ -152,6 +164,8 @@ def main(argv=None):
         cmd_consolidate(cfg, auto="--yes" in argv)
     elif cmd == "seal-check":
         cmd_seal_check(cfg)
+    elif cmd == "check":
+        cmd_check(cfg)
     elif cmd == "new" and len(argv) > 1:
         cmd_new(cfg, argv[1])
     elif cmd == "status":
