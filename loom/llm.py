@@ -45,14 +45,18 @@ def _post(url: str, payload: dict, api_key: str, timeout: int) -> dict:
 
 
 def chat(messages: list[dict], cfg: dict, max_tokens: int | None = None,
-         temperature: float | None = None) -> str:
-    """One /v1/chat/completions round-trip → cleaned assistant text."""
+         temperature: float | None = None, response_format=None) -> str:
+    """One /v1/chat/completions round-trip → cleaned assistant text. `response_format`
+    (e.g. {"type": "json_object"}) constrains generation via the server's grammar —
+    guaranteeing valid JSON even from a wild model."""
     payload = {
         "model": cfg["llm_model"],
         "messages": messages,
         "max_tokens": max_tokens or cfg["max_tokens"],
         "temperature": cfg["temperature"] if temperature is None else temperature,
     }
+    if response_format:
+        payload["response_format"] = response_format
     resp = _post(cfg["llm_url"], payload, cfg["api_key"], cfg["request_timeout"])
     try:
         content = resp["choices"][0]["message"]["content"] or ""

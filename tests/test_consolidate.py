@@ -4,7 +4,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from loom import consolidate, threads, llm
+from loom import consolidate, threads, llm, canon
 from loom.threads import Thread
 
 _CFG = {"llm_url": "x", "llm_model": "m", "api_key": "k",
@@ -33,6 +33,15 @@ class ProposeTest(unittest.TestCase):
         self.assertEqual(out["nodes"], [])            # defaults still fill
 
 
+class LenientTest(unittest.TestCase):
+    def test_repairs_truncated_object(self):
+        d = consolidate._loads_lenient('{"nodes": [{"name": "A", "body": "cut off here')
+        self.assertEqual(d["nodes"][0]["name"], "A")
+
+    def test_passes_valid_through(self):
+        self.assertEqual(consolidate._loads_lenient('{"a": 1}'), {"a": 1})
+
+
 class ApplyThreadsTest(unittest.TestCase):
     def test_adds_new_thread_on_approval(self):
         camp = _camp()
@@ -56,6 +65,23 @@ class ApplyThreadsTest(unittest.TestCase):
         consolidate.apply({"threads_resolved": ["mill-q"]}, camp / "world",
                           camp / "state.json", approve=lambda *a: True)
         self.assertEqual(threads.load(camp / "threads.json")[0].status, "resolved")
+
+    def test_updates_existing_node_preserving_frontmatter(self):
+        camp = _camp()
+        canon.write_node(camp / "world", "Mara", "A fisher.", {"kind": "character", "wants": "to leave"})
+        consolidate.apply({"nodes": [{"name": "Mara", "body": "She now trusts the stranger.", "kind": "character"}]},
+                          camp / "world", camp / "state.json", approve=lambda *a: True)
+        node = canon.read_node(camp / "world", "Mara")
+        self.assertIn("A fisher.", node["body"])                 # original kept, not clobbered
+        self.assertIn("trusts the stranger", node["body"])       # new content appended
+        self.assertEqual(node["frontmatter"].get("wants"), "to leave")   # drive preserved
+
+    def test_skips_duplicate_body(self):
+        camp = _camp()
+        canon.write_node(camp / "world", "Mara", "A fisher who left.", {"kind": "character"})
+        w = consolidate.apply({"nodes": [{"name": "Mara", "body": "who left", "kind": "character"}]},
+                              camp / "world", camp / "state.json", approve=lambda *a: True)
+        self.assertEqual(w["nodes"], [])                         # already present → no-op
 
     def test_dedups_by_id(self):
         camp = _camp()

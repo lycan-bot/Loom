@@ -12,6 +12,35 @@ from . import llm, canon, state, threads
 
 _JSON_RE = re.compile(r"\{[\s\S]*\}")
 
+
+def _loads_lenient(text: str):
+    """json.loads, but if the object was truncated (e.g. hit max_tokens), repair it by
+    closing any open string and balancing braces/brackets. The grammar guarantees valid
+    JSON *syntax*; this guards against a valid-but-cut-off object."""
+    try:
+        return json.loads(text)
+    except Exception:
+        pass
+    stack, in_str, esc = [], False, False
+    closer = {"{": "}", "[": "]"}
+    for ch in text:
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch in closer:
+            stack.append(closer[ch])
+        elif ch in ("}", "]") and stack and stack[-1] == ch:
+            stack.pop()
+    repaired = text + ('"' if in_str else "") + "".join(reversed(stack))
+    return json.loads(repaired)
+
 _PROMPT = """You are the archivist of an ongoing story. Read the play log and propose durable \
 updates to the world. Extract only what is now ESTABLISHED; do not invent beyond the log.
 
@@ -51,11 +80,12 @@ def propose(cfg: dict, session_lines: list[dict], existing_threads=None) -> dict
     open_str = "\n".join(f"- [{t.id}] {t.question}" for t in (existing_threads or [])
                          if getattr(t, "status", "") != "resolved") or "(none yet)"
     log_text = "\n".join(f"{e.get('role', '?')}: {e.get('text', '')}" for e in session_lines)
-    raw = llm.complete(_PROMPT % (open_str, log_text), ccfg, max_tokens=1400, temperature=0.2)
+    raw = llm.complete(_PROMPT % (open_str, log_text), ccfg, max_tokens=1400, temperature=0.2,
+                       response_format={"type": "json_object"})   # grammar-guaranteed valid JSON
     m = _JSON_RE.search(raw)
     if not m:
         raise ValueError(f"no JSON object in consolidation output: {raw[:200]}")
-    data = json.loads(m.group(0))
+    data = _loads_lenient(m.group(0))
     for key, default in (("nodes", []), ("state", {}), ("threads_new", []),
                          ("threads_resolved", []), ("summary", "")):
         data.setdefault(key, default)
@@ -70,12 +100,19 @@ def apply(proposals: dict, world: Path, state_path: Path, approve) -> dict:
     written: dict[str, list] = {"nodes": [], "state": [], "threads": [], "resolved": []}
     for node in proposals.get("nodes", []):
         name = node.get("name")
+        body = (node.get("body") or "").strip()
         if not name:
             continue
         if approve("node", name, node):
-            canon.write_node(world, name, node.get("body", ""),
-                             {"kind": node.get("kind", "lore")})
-            written["nodes"].append(name)
+            existing = canon.read_node(world, name)
+            if existing is None:                                  # create
+                canon.write_node(world, name, body, {"kind": node.get("kind", "lore")})
+                written["nodes"].append(name)
+            elif body and body not in existing["body"]:           # update: append novel content,
+                merged = existing["body"].rstrip() + "\n\n" + body   # preserving frontmatter (drives!)
+                canon.write_node(world, name, merged, existing["frontmatter"])
+                written["nodes"].append(name)
+            # else: node exists and nothing new to add — leave it untouched
     st = state.load(state_path)
     changed = False
     for key, val in (proposals.get("state") or {}).items():
