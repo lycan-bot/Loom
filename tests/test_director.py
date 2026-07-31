@@ -53,6 +53,20 @@ class DirectorTest(unittest.TestCase):
         self.assertIn("faintest hint", director.clause(director.Beat("seed", t)))
         self.assertEqual(director.clause(director.Beat("none")), "")
 
+    def test_staged_payoff_advances_then_resolves(self):
+        t = Thread("x", "q", stages=["a hint", "the truth"])
+        director.settle(director.Beat("payoff", t))
+        self.assertEqual(t.stage, 1)
+        self.assertEqual(t.status, "ripening")
+        director.settle(director.Beat("payoff", t))
+        self.assertEqual(t.status, "resolved")
+
+    def test_clause_uses_current_stage(self):
+        t = Thread("x", "q", stages=["a hint appears", "the truth is spoken"], stage=0)
+        self.assertIn("a hint appears", director.clause(director.Beat("payoff", t)))
+        t.stage = 1
+        self.assertIn("the truth is spoken", director.clause(director.Beat("payoff", t)))
+
 
 if __name__ == "__main__":
     unittest.main()

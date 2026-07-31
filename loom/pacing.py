@@ -66,16 +66,11 @@ def _intensity(text: str) -> float:
     return min(1.0, tense / (tense + calm + 1))
 
 
-def read(transcript_lines, stall_window: int = 2,
+def read(transcript_lines, tension: float, stall_window: int = 2,
          drive_floor: float = 0.3, tension_ceiling: float = 0.45) -> Pacing:
+    """Given the current dramatic `tension` (from the homeostat), decide HOLD vs OFFER
+    from the player's recent agency. OFFER only on a genuine stall AND low tension."""
     players = [e["text"] for e in transcript_lines if e.get("role") == "player"]
-    narrators = [e["text"] for e in transcript_lines if e.get("role") == "narrator"]
-
-    # tension: an EMA over recent narrator beats that decays toward calm on quiet beats
-    tension = 0.3
-    for beat in narrators[-6:]:
-        tension = 0.6 * tension + 0.4 * _intensity(beat)
-
     drives = [_drive(p) for p in players[-stall_window:]]
     drive = drives[-1] if drives else 1.0
 
@@ -86,6 +81,14 @@ def read(transcript_lines, stall_window: int = 2,
     reason = ("player is engaged — hold" if not stalled
               else f"stalled but tension {tension:.2f} still high — let it breathe, hold")
     return Pacing("hold", round(tension, 2), round(drive, 2), reason)
+
+
+def update_tension(prior: float, narration: str, baseline: float = 0.15, decay: float = 0.7) -> float:
+    """The dramatic-tension homeostat: a tense beat raises tension; a calm one lets it decay
+    back toward the campaign's resting baseline (never to zero). Longer memory than a per-turn
+    window — the aftermath of a climax lingers, so the director gives real breathing room."""
+    target = max(_intensity(narration), baseline)
+    return round(decay * prior + (1.0 - decay) * target, 3)
 
 
 _OFFER_CLAUSE = (

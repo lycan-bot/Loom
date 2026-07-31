@@ -55,12 +55,20 @@ def decide(threads, scene_names, pacing, newly_seeded=None) -> Beat:
 
 
 def settle(beat) -> None:
-    """Apply the consequence of delivering a beat to its thread (cooldown / resolve)."""
+    """Apply the consequence of delivering a beat. A staged thread advances one stage and
+    resolves at the end of its arc; an unstaged thread cools down to re-ripen."""
     t = beat.thread
     if t is None:
         return
     if beat.mode == "payoff":
-        t.readiness, t.status = 0.3, "ripening"     # advanced a stage; cools down to re-ripen
+        if getattr(t, "stages", None):
+            t.stage += 1
+            if t.stage >= len(t.stages):
+                t.status, t.readiness = "resolved", 1.0    # the arc is complete
+            else:
+                t.readiness, t.status = 0.3, "ripening"    # next stage will deepen it
+        else:
+            t.readiness, t.status = 0.3, "ripening"
     elif beat.mode == "world":
         t.status = "resolved"                        # the scheduled event has happened
 
@@ -68,7 +76,9 @@ def settle(beat) -> None:
 def clause(beat) -> str:
     t = beat.thread
     if beat.mode == "payoff":
-        tail = f" — {t.payoff}" if t.payoff else ""
+        stages = getattr(t, "stages", None)
+        step = stages[t.stage] if stages and t.stage < len(stages) else t.payoff
+        tail = f" — {step}" if step else ""
         return (f"\n\nPACING: the moment is right to draw the thread of “{t.question}” a little "
                 f"closer{tail}. Offer the player a gentle opening toward it, kept low-key and easy "
                 f"to decline. No forced drama or danger.")

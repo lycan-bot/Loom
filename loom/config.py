@@ -30,8 +30,10 @@ DEFAULTS = {
     "embed_model":     "local",
 
     # --- retrieval / prompt shaping ---
-    "retrieve_k":      6,     # canon nodes pulled in to ground a turn
-    "recent_turns":    8,     # transcript lines kept for immediate continuity
+    "retrieve_k":       6,    # canon nodes pulled in to ground a turn
+    "recent_turns":     8,    # transcript lines kept for immediate continuity
+    "tension_baseline": 0.15, # a campaign's resting dramatic tension (cozy 0.05 … grim 0.35)
+    "tension_decay":    0.7,  # how slowly tension returns to baseline after a climax
 
     # --- which campaign is live ---
     "campaign":        "example",

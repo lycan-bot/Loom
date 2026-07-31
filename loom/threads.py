@@ -39,7 +39,9 @@ class Thread:
     entities: list = field(default_factory=list)   # canon node names it involves
     clock: object = None                # beats until a clock thread fires (int) or None
     seed: str = ""                      # the subtle foreshadow to plant
-    payoff: str = ""                    # what advancing / answering it looks like
+    payoff: str = ""                    # what advancing / answering it looks like (if unstaged)
+    stages: list = field(default_factory=list)   # optional arc: successive payoff beats
+    stage: int = 0                      # position along the arc
 
 
 def load(path) -> list:

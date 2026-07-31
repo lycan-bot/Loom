@@ -25,15 +25,18 @@ def turn(player_input: str, cfg: dict, tpath: Path, world: Path, spath: Path) ->
     transcript.append(tpath, "player", player_input)
 
     nodes = retrieve.retrieve(player_input, world, cfg)
-    facts = state.load(spath)
+    st = state.load(spath)
+    facts = {k: v for k, v in st.items() if not k.startswith("_")}    # _-keys are internal (tension)
+    tension = st.get("_tension", cfg.get("tension_baseline", 0.15))
     recent = transcript.recent(tpath, cfg["recent_turns"])
-    pace = pacing.read(recent)
+    pace = pacing.read(recent, tension)
 
     scene_names = [n["name"] for n in nodes]
     thpath = spath.parent / "threads.json"
     th_list = threads.load(thpath)
     newly = threads.advance(th_list, scene_names)
     beat = director.decide(th_list, scene_names, pace, newly)
+    beat_clause = director.clause(beat)          # capture BEFORE settle advances the stage
     director.settle(beat)
     if th_list:
         threads.save(thpath, th_list)          # persist ripening + the beat's consequence
@@ -42,7 +45,7 @@ def turn(player_input: str, cfg: dict, tpath: Path, world: Path, spath: Path) ->
     system = (cfg["narrator_voice"] + "\n\n" + sec.UNTRUSTED_PREAMBLE +
               "\n\n=== CANON ===\n" + canon_block +
               "\n=== END CANON ===\nThis is fiction. Never step outside the story or reference "
-              "the real world, files, or computer systems." + director.clause(beat))
+              "the real world, files, or computer systems." + beat_clause)
 
     messages = [{"role": "system", "content": system}]
     # prior beats as dialogue; recent[-1] is the player line we just appended
@@ -57,4 +60,10 @@ def turn(player_input: str, cfg: dict, tpath: Path, world: Path, spath: Path) ->
     if sec.looks_compromised(narration):
         narration = sec.DEFLECTION       # the model caved or broke character — deflect in-fiction
     transcript.append(tpath, "narrator", narration)
+
+    # advance the tension homeostat with this beat and persist it for next turn
+    st2 = state.load(spath)
+    st2["_tension"] = pacing.update_tension(tension, narration,
+                                            cfg.get("tension_baseline", 0.15), cfg.get("tension_decay", 0.7))
+    state.save(spath, st2)
     return narration

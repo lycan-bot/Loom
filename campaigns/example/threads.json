@@ -7,7 +7,12 @@
     "readiness": 0.0,
     "entities": ["The Lighthouse", "Fisherfolk", "The World"],
     "seed": "the lighthouse's dark eye seems to hold on you a beat too long, and the water near the mole lies unnaturally still",
-    "payoff": "a fragment of what happened out there surfaces — a name, a kept object, or a witness whose fear says more than words"
+    "payoff": "a fragment of what happened out there surfaces — a name, a kept object, or a witness whose fear says more than words",
+    "stages": [
+      "a first small fragment surfaces — a name half-remembered, or an object someone kept from that night",
+      "a witness's account, partial and fearful, of what they saw the light do before it died",
+      "the truth of what put the lighthouse out, and what it has cost the town to keep its silence"
+    ]
   },
   {
     "id": "fisherfolk-trust",

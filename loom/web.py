@@ -57,7 +57,7 @@ def make_handler(cfg: dict):
                     "campaign": cfg["campaign"],
                     "model": cfg["llm_url"],
                     "canon": _graph(world)["nodes"],
-                    "state": state.load(spath),
+                    "state": {k: v for k, v in state.load(spath).items() if not k.startswith("_")},
                     "threads": [{"question": t.question, "status": t.status,
                                  "readiness": round(t.readiness, 2)} for t in th
                                 if t.status != "resolved"],

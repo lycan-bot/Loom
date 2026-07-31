@@ -51,6 +51,13 @@ class ThreadsTest(unittest.TestCase):
         self.assertEqual([t.id for t in back], ["a", "b"])
         self.assertEqual(back[1].clock, 3)
 
+    def test_stages_roundtrip(self):
+        d = Path(tempfile.mkdtemp()) / "threads.json"
+        threads.save(d, [Thread("a", "q", stages=["one", "two"], stage=1)])
+        back = threads.load(d)
+        self.assertEqual(back[0].stages, ["one", "two"])
+        self.assertEqual(back[0].stage, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -99,7 +99,7 @@ def cmd_status(cfg):
     print(f"model     : {cfg['llm_url']}  (embeddings: {cfg['use_embeddings']})")
     print(f"transcript: {len(transcript.read_all(tpath))} lines")
     print(f"canon     : {len(canon.load_all(world))} nodes")
-    print(f"state     : {len(state.load(spath))} facts")
+    print(f"state     : {len([k for k in state.load(spath) if not k.startswith('_')])} facts")
     print(f"threads   : {len([t for t in threads.load(spath.parent / 'threads.json') if t.status != 'resolved'])} pending")
 
 
