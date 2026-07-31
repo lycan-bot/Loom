@@ -10,7 +10,7 @@ import json
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from . import config, canon, state, transcript, narrate, consolidate, llm, threads
+from . import config, canon, state, transcript, narrate, consolidate, llm, threads, imagine
 
 STATIC = Path(__file__).resolve().parent / "static"
 
@@ -110,6 +110,22 @@ def make_handler(cfg: dict):
                     proposals, world, spath,
                     approve=lambda kind, name, _p: name in ok.get(kind, set()))
                 return self._send(200, {"written": written})
+            if u.path == "/api/imagine":
+                try:
+                    cands = imagine.propose(world, spath.parent / "threads.json", cfg)
+                except Exception as e:
+                    return self._send(502, {"error": str(e)})
+                return self._send(200, {"candidates": [
+                    {"id": c.id, "question": c.question, "entities": c.entities,
+                     "seed": c.seed, "payoff": c.payoff} for c in cands]})
+            if u.path == "/api/imagine/bless":
+                approved = set(body.get("approved_ids") or [])
+                cands = [threads.Thread(id=c["id"], question=c.get("question", ""), status="imagined",
+                                        entities=c.get("entities") or [], seed=c.get("seed", ""),
+                                        payoff=c.get("payoff", "")) for c in (body.get("candidates") or [])]
+                added = imagine.bless(spath.parent / "threads.json", cands,
+                                      approve=lambda k, q, c: c.id in approved)
+                return self._send(200, {"added": added})
             return self._send(404, {"error": "not found"})
 
     return H

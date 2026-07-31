@@ -7,11 +7,12 @@ Usage:
   python -m loom seal-check             verify nothing has leaked past the wall
   python -m loom new <name>             create a new campaign
   python -m loom npcs                   sync character drives into relational threads
+  python -m loom imagine [--yes]        dream new threads from the canon (imagination organ)
   python -m loom web [--port N]         browser UI (play + world map), default :8100
 """
 from __future__ import annotations
 import sys
-from . import config, narrate, consolidate, seal, transcript, canon, state, llm, threads, npc
+from . import config, narrate, consolidate, seal, transcript, canon, state, llm, threads, npc, imagine
 
 
 def _paths(cfg):
@@ -103,6 +104,28 @@ def cmd_status(cfg):
     print(f"threads   : {len([t for t in threads.load(spath.parent / 'threads.json') if t.status != 'resolved'])} pending")
 
 
+def cmd_imagine(cfg, auto=False):
+    _, world, spath = _paths(cfg)
+    thpath = spath.parent / "threads.json"
+    print("dreaming…")
+    cands = imagine.propose(world, thpath, cfg)
+    if not cands:
+        print("nothing coherent surfaced this time.")
+        return
+    print(f"imagined {len(cands)} candidate thread(s):")
+    for c in cands:
+        print(f"  ? {c.question}   [{', '.join(c.entities)}]")
+
+    def approve(kind, q, c):
+        if auto:
+            print(f"  + {q[:70]}")
+            return True
+        return input(f"  bless '{q[:60]}'? [y/N] ").strip().lower() in ("y", "yes")
+
+    added = imagine.bless(thpath, cands, approve)
+    print(f"\nblessed {len(added)} into the plan as dormant thread(s).")
+
+
 def cmd_npcs(cfg):
     _, world, spath = _paths(cfg)
     ds = npc.drives(world)
@@ -137,6 +160,8 @@ def main(argv=None):
         web.serve(cfg, port=port)
     elif cmd == "npcs":
         cmd_npcs(cfg)
+    elif cmd == "imagine":
+        cmd_imagine(cfg, auto="--yes" in argv)
     else:
         print(__doc__)
 
