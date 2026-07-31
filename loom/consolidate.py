@@ -28,9 +28,18 @@ PLAY LOG:
 
 
 def propose(cfg: dict, session_lines: list[dict]) -> dict:
-    """Ask the model for proposed canon/state changes. Returns a dict; writes nothing."""
+    """Ask the model for proposed canon/state changes. Returns a dict; writes nothing.
+
+    Uses the optional archivist endpoint (consolidate_llm_url / consolidate_model) when
+    set — consolidation wants reliable JSON, which a wild uncensored narrator may botch.
+    """
+    ccfg = dict(cfg)
+    if cfg.get("consolidate_llm_url"):
+        ccfg["llm_url"] = cfg["consolidate_llm_url"]
+    if cfg.get("consolidate_model"):
+        ccfg["llm_model"] = cfg["consolidate_model"]
     log_text = "\n".join(f"{e.get('role', '?')}: {e.get('text', '')}" for e in session_lines)
-    raw = llm.complete(_PROMPT % log_text, cfg, max_tokens=1200, temperature=0.2)
+    raw = llm.complete(_PROMPT % log_text, ccfg, max_tokens=1200, temperature=0.2)
     m = _JSON_RE.search(raw)
     if not m:
         raise ValueError(f"no JSON object in consolidation output: {raw[:200]}")

@@ -12,16 +12,21 @@ ROOT = Path(__file__).resolve().parent.parent
 
 DEFAULTS = {
     # --- the local model (llama-server, OpenAI-compatible endpoint) ---
-    "llm_url":         "http://localhost:8080/v1/chat/completions",
+    "llm_url":         "http://localhost:8090/v1/chat/completions",  # loom's OWN server — see serve.sh
     "llm_model":       "local",
     "api_key":         "sk-local",
     "max_tokens":      700,
     "temperature":     0.85,
-    "request_timeout": 120,
+    "request_timeout": 180,
+
+    # optional 2nd model — a separate obedient "archivist" for consolidation (which
+    # wants clean JSON, unlike a wild uncensored narrator). Blank → reuse the narrator.
+    "consolidate_llm_url": "",
+    "consolidate_model":   "",
 
     # --- embeddings are OPTIONAL; lexical retrieval is the zero-dep default ---
     "use_embeddings":  False,
-    "embed_url":       "http://localhost:8080/v1/embeddings",
+    "embed_url":       "http://localhost:8090/v1/embeddings",
     "embed_model":     "local",
 
     # --- retrieval / prompt shaping ---

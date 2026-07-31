@@ -39,6 +39,20 @@ loom's entire safety model is a **filesystem seal**: every read/write stays insi
 or the source project. Because it's contained and has no hands on anything real,
 it gets to be *free* inside the wall — no floor, no gates.
 
+## Sovereignty — its own model server
+
+loom runs its **own** llama.cpp server (`./serve.sh`, port 8090) so the narrator is
+never steered by another project's control vector or persona. It talks to any local
+OpenAI-compatible endpoint, so swapping models is just a path:
+
+```bash
+MODEL=/path/to/rocinante-12b.Q4_K_M.gguf ./serve.sh
+```
+
+For a "true D&D" feel you want an *uncensored / roleplay* tune that stays in
+character. And because a wild narrator is often bad at clean JSON, the `consolidate`
+step can point at a separate, obedient **archivist** model (`consolidate_llm_url`).
+
 ## Layout
 
 ```
@@ -52,27 +66,28 @@ loom/
   consolidate.py  the diode: transcript → proposed nodes → you bless → canon
   narrate.py      one turn: retrieve canon → prompt → append
   seal.py         the wall
+serve.sh          loom's own sovereign model server (no shared control vector)
 campaigns/<name>/ transcript.jsonl · world/ · state.json
 ```
 
 ## Quickstart
 
 ```bash
-cp config.example.json config.json      # point llm_url at your llama-server
-python -m loom status                    # show the live campaign
-python -m loom play                      # narrate
-python -m loom consolidate               # end of session: fold the log into canon
-python -m loom seal-check                # audit the wall
-python -m loom new mycampaign            # start a fresh world
+./serve.sh                    # loom's own model server on :8090 (no shared persona vector)
+python -m loom status         # show the live campaign
+python -m loom play           # narrate
+python -m loom consolidate    # end of session: fold the log into canon (with approval)
+python -m loom seal-check      # audit the wall
+python -m loom new mycampaign  # start a fresh world
 ```
 
-Runs against any local OpenAI-compatible endpoint (llama-server, Ollama, LM
-Studio). Embeddings are optional (`use_embeddings`); lexical retrieval is the
-zero-dependency default.
+Embeddings are optional (`use_embeddings`); lexical retrieval is the zero-dependency
+default.
 
 ## Status
 
 MVP scaffold — the loop, the three-tier vault, the diode, and the wall are real and
-tested (`python -m unittest discover -s tests`). Round-2 organs to pull from
-Primarch (voice card, imagination + gate, pacing nerves, prompt-injection guard,
-world-graph UI) are catalogued and not yet wired.
+tested (`python -m unittest discover -s tests`). Runs its own sovereign model
+server. Round-2 organs to pull from Primarch (voice card, imagination + gate, pacing
+nerves, prompt-injection guard, world-graph UI) are catalogued in
+[docs/SALVAGE.md](docs/SALVAGE.md) and not yet wired.

@@ -1,12 +1,15 @@
 {
-  "llm_url": "http://localhost:8080/v1/chat/completions",
+  "llm_url": "http://localhost:8090/v1/chat/completions",
   "llm_model": "local",
   "api_key": "sk-local",
   "max_tokens": 700,
   "temperature": 0.85,
 
   "use_embeddings": false,
-  "embed_url": "http://localhost:8080/v1/embeddings",
+  "embed_url": "http://localhost:8090/v1/embeddings",
+
+  "consolidate_llm_url": "",
+  "consolidate_model": "",
 
   "retrieve_k": 6,
   "recent_turns": 8,
