@@ -14,6 +14,7 @@ MODEL="${MODEL:-/home/Fenrir/sigilus/Models/gemma-4-12B-it-QAT-Q4_0.gguf}"
 PORT="${PORT:-8090}"
 NGL="${NGL:-999}"          # full GPU offload; lower to share VRAM, 0 for CPU-only
 CTX="${CTX:-16384}"
+FA="${FA:-off}"           # RDNA2 + Vulkan: flash-attn is BROKEN — 'on'/'auto' can fall to CPU (~35x slower). Keep off.
 
 [[ -x "$LLAMA_SERVER" ]] || { echo "!! llama-server not found at $LLAMA_SERVER (set LLAMA_SERVER=)" >&2; exit 1; }
 [[ -f "$MODEL" ]]        || { echo "!! model not found at $MODEL (set MODEL=/path/to/model.gguf)" >&2; exit 1; }
@@ -27,4 +28,4 @@ fi
 
 echo "loom-server → $(basename "$MODEL") on 127.0.0.1:$PORT  (ngl=$NGL ctx=$CTX, NO control vector)"
 exec "$LLAMA_SERVER" -m "$MODEL" --host 127.0.0.1 --port "$PORT" \
-  -ngl "$NGL" --ctx-size "$CTX" --reasoning-budget 0 --parallel 1
+  -ngl "$NGL" --ctx-size "$CTX" --flash-attn "$FA" --reasoning-budget 0 --parallel 1
