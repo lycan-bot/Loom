@@ -1,0 +1,13 @@
+[project]
+name = "loom"
+version = "0.1.0"
+description = "A sealed, standalone AI story-narrator / game master."
+requires-python = ">=3.10"
+dependencies = []          # pure standard library — the whole point is standalone
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["loom"]

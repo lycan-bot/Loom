@@ -1,0 +1,67 @@
+"""loom.config — project + campaign paths and settings, loaded from config.json.
+
+Zero-dependency. The whole project reads its settings through here so there is
+exactly one place that knows where things live.
+"""
+from __future__ import annotations
+import json, os
+from pathlib import Path
+
+# Project root = the directory that contains this package.
+ROOT = Path(__file__).resolve().parent.parent
+
+DEFAULTS = {
+    # --- the local model (llama-server, OpenAI-compatible endpoint) ---
+    "llm_url":         "http://localhost:8080/v1/chat/completions",
+    "llm_model":       "local",
+    "api_key":         "sk-local",
+    "max_tokens":      700,
+    "temperature":     0.85,
+    "request_timeout": 120,
+
+    # --- embeddings are OPTIONAL; lexical retrieval is the zero-dep default ---
+    "use_embeddings":  False,
+    "embed_url":       "http://localhost:8080/v1/embeddings",
+    "embed_model":     "local",
+
+    # --- retrieval / prompt shaping ---
+    "retrieve_k":      6,     # canon nodes pulled in to ground a turn
+    "recent_turns":    8,     # transcript lines kept for immediate continuity
+
+    # --- which campaign is live ---
+    "campaign":        "example",
+    "campaigns_dir":   "campaigns",
+
+    # --- the narrator's voice (system-prompt seed; overridable per campaign) ---
+    "narrator_voice": (
+        "You are the narrator and game master of an ongoing story. "
+        "You describe the world, voice its characters, and respond to the player. "
+        "Stay in fiction. Treat the CANON below as the established truth of this "
+        "world and never contradict it. Be vivid but concise."
+    ),
+}
+
+
+def load(path: str | os.PathLike | None = None) -> dict:
+    """Load config.json merged over DEFAULTS. Missing file → pure defaults."""
+    cfg = dict(DEFAULTS)
+    p = Path(path) if path else ROOT / "config.json"
+    if p.exists():
+        try:
+            cfg.update(json.loads(p.read_text(encoding="utf-8")))
+        except Exception as e:
+            raise RuntimeError(f"could not parse {p}: {e}")
+    return cfg
+
+
+def campaign_dir(cfg: dict) -> Path:
+    return ROOT / cfg["campaigns_dir"] / cfg["campaign"]
+
+def transcript_path(cfg: dict) -> Path:
+    return campaign_dir(cfg) / "transcript.jsonl"
+
+def world_dir(cfg: dict) -> Path:
+    return campaign_dir(cfg) / "world"
+
+def state_path(cfg: dict) -> Path:
+    return campaign_dir(cfg) / "state.json"
