@@ -76,6 +76,14 @@ class ApplyThreadsTest(unittest.TestCase):
         self.assertIn("trusts the stranger", node["body"])       # new content appended
         self.assertEqual(node["frontmatter"].get("wants"), "to leave")   # drive preserved
 
+    def test_updates_character_disposition(self):
+        camp = _camp()
+        canon.write_node(camp / "world", "Mara", "A fisher.", {"kind": "character", "disposition": "cold"})
+        consolidate.apply({"character_updates": [{"name": "Mara", "disposition": "warming to the stranger"}]},
+                          camp / "world", camp / "state.json", approve=lambda *a: True)
+        self.assertEqual(canon.read_node(camp / "world", "Mara")["frontmatter"].get("disposition"),
+                         "warming to the stranger")
+
     def test_skips_duplicate_body(self):
         camp = _camp()
         canon.write_node(camp / "world", "Mara", "A fisher who left.", {"kind": "character"})

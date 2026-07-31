@@ -54,6 +54,7 @@ Respond with ONE json object:
   "state":   {"key": "value"},
   "threads_new":      [{"question": "a NEW open dramatic question this session RAISED", "entities": ["canon names it involves"], "seed": "a subtle detail to foreshadow it later", "payoff": "what answering it might look like"}],
   "threads_resolved": ["<id of an open thread the session ANSWERED, if any>"],
+  "character_updates": [{"name": "an existing character", "disposition": "how they now feel toward the player, ONLY if it clearly shifted this session"}],
   "summary": "one sentence on what changed"
 }
 Only open a thread for a genuine NEW dramatic question the session actually raised; only resolve \
@@ -87,7 +88,7 @@ def propose(cfg: dict, session_lines: list[dict], existing_threads=None) -> dict
         raise ValueError(f"no JSON object in consolidation output: {raw[:200]}")
     data = _loads_lenient(m.group(0))
     for key, default in (("nodes", []), ("state", {}), ("threads_new", []),
-                         ("threads_resolved", []), ("summary", "")):
+                         ("threads_resolved", []), ("character_updates", []), ("summary", "")):
         data.setdefault(key, default)
     return data
 
@@ -97,7 +98,7 @@ def apply(proposals: dict, world: Path, state_path: Path, approve) -> dict:
     is called for EVERY change; nothing is written unless it returns True. This callback
     is the diode — the operator's hand between improv and canon.
     """
-    written: dict[str, list] = {"nodes": [], "state": [], "threads": [], "resolved": []}
+    written: dict[str, list] = {"nodes": [], "state": [], "threads": [], "resolved": [], "dispositions": []}
     for node in proposals.get("nodes", []):
         name = node.get("name")
         body = (node.get("body") or "").strip()
@@ -151,4 +152,19 @@ def apply(proposals: dict, world: Path, state_path: Path, approve) -> dict:
             th_changed = True
     if th_changed:
         threads.save(thpath, th)
+
+    # a character's disposition toward the player, updated in place (relationship growth)
+    for cu in proposals.get("character_updates", []):
+        name = cu.get("name")
+        disp = (cu.get("disposition") or "").strip()
+        if not name or not disp:
+            continue
+        node = canon.read_node(world, name)
+        if node is None or node["frontmatter"].get("kind") != "character":
+            continue
+        if approve("disposition", name, disp):
+            fm = dict(node["frontmatter"])
+            fm["disposition"] = disp
+            canon.write_node(world, name, node["body"], fm)
+            written["dispositions"].append(name)
     return written

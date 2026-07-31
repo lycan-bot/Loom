@@ -105,7 +105,8 @@ def make_handler(cfg: dict):
                 ok = {"node": set(body.get("approved_nodes") or []),
                       "state": set(body.get("approved_state") or []),
                       "thread": set(body.get("approved_threads") or []),
-                      "resolve": set(body.get("approved_resolved") or [])}
+                      "resolve": set(body.get("approved_resolved") or []),
+                      "disposition": set(body.get("approved_dispositions") or [])}
                 written = consolidate.apply(
                     proposals, world, spath,
                     approve=lambda kind, name, _p: name in ok.get(kind, set()))
