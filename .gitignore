@@ -3,3 +3,4 @@ __pycache__/
 config.json
 **/.embed_cache.json
 *.tmp
+campaigns/*/transcript.jsonl

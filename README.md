@@ -75,7 +75,8 @@ campaigns/<name>/ transcript.jsonl · world/ · state.json
 ```bash
 ./serve.sh                    # loom's own model server on :8090 (no shared persona vector)
 python -m loom status         # show the live campaign
-python -m loom play           # narrate
+python -m loom play           # narrate (terminal)
+python -m loom web            # browser UI: story + world map + reader (:8100)
 python -m loom consolidate    # end of session: fold the log into canon (with approval)
 python -m loom seal-check      # audit the wall
 python -m loom new mycampaign  # start a fresh world
@@ -87,7 +88,8 @@ default.
 ## Status
 
 MVP scaffold — the loop, the three-tier vault, the diode, and the wall are real and
-tested (`python -m unittest discover -s tests`). Runs its own sovereign model
-server. Round-2 organs to pull from Primarch (voice card, imagination + gate, pacing
-nerves, prompt-injection guard, world-graph UI) are catalogued in
-[docs/SALVAGE.md](docs/SALVAGE.md) and not yet wired.
+tested (`python -m unittest discover -s tests`). Runs its own sovereign model server,
+and a stdlib-only web UI (`python -m loom web`) with a story pane, a force-graph world
+map, and a canon reader — proven live end-to-end against a local Mag-Mell 12B. Round-2
+organs still to pull from Primarch (voice card, imagination + gate, pacing nerves,
+prompt-injection guard) are catalogued in [docs/SALVAGE.md](docs/SALVAGE.md).

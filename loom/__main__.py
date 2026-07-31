@@ -6,6 +6,7 @@ Usage:
   python -m loom consolidate [--yes]    fold this session's log into canon (with approval)
   python -m loom seal-check             verify nothing has leaked past the wall
   python -m loom new <name>             create a new campaign
+  python -m loom web [--port N]         browser UI (play + world map), default :8100
 """
 from __future__ import annotations
 import sys
@@ -111,6 +112,10 @@ def main(argv=None):
         cmd_new(cfg, argv[1])
     elif cmd == "status":
         cmd_status(cfg)
+    elif cmd == "web":
+        from . import web
+        port = int(argv[argv.index("--port") + 1]) if "--port" in argv else 8100
+        web.serve(cfg, port=port)
     else:
         print(__doc__)
 
