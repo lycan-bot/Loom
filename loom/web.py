@@ -59,7 +59,7 @@ def make_handler(cfg: dict):
                     "model": cfg["llm_url"],
                     "canon": _graph(world)["nodes"],
                     "state": {k: v for k, v in state.load(spath).items() if not k.startswith("_")},
-                    "threads": [{"question": t.question, "status": t.status,
+                    "threads": [{"id": t.id, "question": t.question, "status": t.status,
                                  "readiness": round(t.readiness, 2)} for t in th
                                 if t.status != "resolved"],
                     "transcript": transcript.recent(tpath, 60),
@@ -151,6 +151,50 @@ def make_handler(cfg: dict):
                     return self._send(400, {"error": "no such campaign"})
                 config.save({"campaign": name})
                 return self._send(200, {"active": name})
+            # --- authoring (writes stay inside the campaign world by construction) ---
+            if u.path == "/api/node/save":
+                name = (body.get("name") or "").strip()
+                if not name:
+                    return self._send(400, {"error": "name required"})
+                fields = {k: v for k, v in (body.get("fields") or {}).items() if v}
+                canon.write_node(world, name, body.get("body") or "",
+                                 {"kind": body.get("kind") or "lore", **fields})
+                return self._send(200, {"ok": True, "name": name})
+            if u.path == "/api/node/delete":
+                p = world / (canon.slug(body.get("name") or "") + ".md")
+                if p.exists() and p.parent.resolve() == world.resolve():
+                    p.unlink()
+                return self._send(200, {"ok": True})
+            if u.path == "/api/new":
+                name = (body.get("name") or "").strip()
+                if not name or any(c in name for c in "/\\") or ".." in name:
+                    return self._send(400, {"error": "bad name"})
+                cdir = config.ROOT / cfg["campaigns_dir"] / name
+                (cdir / "world").mkdir(parents=True, exist_ok=True)
+                if not any((cdir / "world").glob("*.md")):
+                    canon.write_node(cdir / "world", "The World",
+                                     "The opening premise of the story goes here.", {"kind": "lore"})
+                state.save(cdir / "state.json", {})
+                config.save({"campaign": name})
+                return self._send(200, {"ok": True, "name": name})
+            if u.path == "/api/thread/save":
+                t = body.get("thread") or {}
+                q = (t.get("question") or "").strip()
+                if not q:
+                    return self._send(400, {"error": "question required"})
+                thp = spath.parent / "threads.json"
+                tid = t.get("id") or threads.make_id(q)
+                keep = [x for x in threads.load(thp) if x.id != tid]
+                keep.append(threads.Thread(
+                    id=tid, question=q, kind=t.get("kind") or "question",
+                    status=t.get("status") or "dormant", readiness=float(t.get("readiness") or 0.0),
+                    entities=t.get("entities") or [], seed=t.get("seed") or "", payoff=t.get("payoff") or ""))
+                threads.save(thp, keep)
+                return self._send(200, {"ok": True, "id": tid})
+            if u.path == "/api/thread/delete":
+                thp = spath.parent / "threads.json"
+                threads.save(thp, [x for x in threads.load(thp) if x.id != body.get("id")])
+                return self._send(200, {"ok": True})
             return self._send(404, {"error": "not found"})
 
     return H

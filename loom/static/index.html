@@ -58,6 +58,14 @@
   .warn{margin-top:12px;color:var(--event);font-size:12px}
   .crow{font-size:12.5px;margin:3px 0;color:var(--text)}
   .clabel{color:var(--muted);text-transform:uppercase;font-size:10.5px;letter-spacing:.5px;margin-right:4px}
+  .mini{background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:5px;padding:1px 7px;font:inherit;font-size:11px;cursor:pointer;margin-left:10px}
+  .tctl{float:right;cursor:pointer;color:var(--muted);font-size:12px}
+  .tctl a{color:var(--muted);cursor:pointer}
+  .addlink{cursor:pointer;color:var(--accent)}
+  .edit label{display:block;color:var(--muted);font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;margin:9px 0 2px}
+  .edit input,.edit select,.edit textarea{width:100%;box-sizing:border-box;background:var(--panel2);border:1px solid var(--border);color:var(--text);border-radius:5px;padding:6px 8px;font:inherit;font-size:13px}
+  .edit textarea{min-height:120px;resize:vertical;font-family:Georgia,serif;line-height:1.5}
+  .edit .row{display:flex;gap:8px;margin-top:12px}
 </style>
 </head>
 <body>
@@ -77,7 +85,7 @@
     </form>
   </section>
   <section class="world">
-    <div class="worldbar"><span id="worldcount">world</span><span style="margin-left:auto" id="legend"></span></div>
+    <div class="worldbar"><span id="worldcount">world</span><a class="mini" onclick="editNode('')">＋ node</a><span style="margin-left:auto" id="legend"></span></div>
     <svg id="graph" viewBox="0 0 600 400" preserveAspectRatio="xMidYMid meet"></svg>
     <div id="reader"><div class="kind">continuity</div><div id="facts" class="facts"></div></div>
   </section>
@@ -93,19 +101,63 @@ function mdToHtml(t){
   return t.split(/\n\s*\n/).map(p=>`<p>${p.replace(/\n/g,"<br>")}</p>`).join("");
 }
 
+function _eb(nm){const s=nm.replace(/'/g,"\\'");return `<div class="tctl"><a onclick="editNode('${s}')">edit</a> · <a onclick="delNode('${s}')">✕</a></div>`;}
 async function openNode(name){
   const r=await fetch("/api/node?name="+encodeURIComponent(name));
   if(!r.ok) return;
   const n=await r.json();
   if(n.card){
     const c=n.card, row=(l,v)=>v?`<div class="crow"><span class="clabel">${l}</span> ${esc(v)}</div>`:"";
-    $("reader").innerHTML=`<h2>${esc(c.name)}</h2><div class="kind">character${c.role?" · "+esc(c.role):""}</div>`+
+    $("reader").innerHTML=_eb(c.name)+`<h2>${esc(c.name)}</h2><div class="kind">character${c.role?" · "+esc(c.role):""}</div>`+
       row("met",c.met)+row("wants",c.want)+row("held by",c.bound)+row("voice",c.voice)+row("toward you",c.disposition)+
       `<div class="body" style="margin-top:10px">${mdToHtml(c.description)}</div>`;
     return;
   }
-  $("reader").innerHTML=`<h2>${esc(n.name)}</h2><div class="kind">${esc(n.kind)}</div>`+
+  $("reader").innerHTML=_eb(n.name)+`<h2>${esc(n.name)}</h2><div class="kind">${esc(n.kind)}</div>`+
     `<div class="body">${mdToHtml(n.body)}</div>`;
+}
+
+// ---- authoring: native editing, no external editor needed ----
+function _field(l,id,v,tag){return `<label>${l}</label>`+(tag==="textarea"?`<textarea id="${id}">${esc(v||"")}</textarea>`:`<input id="${id}" value="${esc(v||"")}">`);}
+function _charFields(c){return _field("role","f_role",c.role)+_field("met","f_met",c.met)+_field("voice","f_voice",c.voice)+_field("disposition","f_disp",c.disposition)+_field("wants","f_wants",c.want)+_field("held by","f_bound",c.bound);}
+async function editNode(name){
+  const n=name?await (await fetch("/api/node?name="+encodeURIComponent(name))).json():{name:"",kind:"lore",body:"",card:{}};
+  const c=n.card||{}, kinds=["lore","place","character","faction","event"];
+  const cancel=name?`openNode('${name.replace(/'/g,"\\'")}')`:"loadState()";
+  $("reader").innerHTML=`<div class="edit"><h2>${name?esc(name):"new node"}</h2>`+
+    (name?"":_field("name","f_name","","input"))+
+    `<label>kind</label><select id="f_kind">`+kinds.map(k=>`<option${k===n.kind?" selected":""}>${k}</option>`).join("")+`</select>`+
+    `<div id="charfields">`+((n.kind==="character")?_charFields(c):"")+`</div>`+
+    _field("description","f_body",n.body||c.description||"","textarea")+
+    `<div class="row"><button onclick="saveNode('${(name||"").replace(/'/g,"\\'")}')">Save</button>`+
+    `<button class="ghost" onclick="${cancel}">Cancel</button></div></div>`;
+  $("f_kind").onchange=()=>{$("charfields").innerHTML=$("f_kind").value==="character"?_charFields(c):"";};
+}
+async function saveNode(orig){
+  const name=orig||($("f_name")?$("f_name").value.trim():""); if(!name) return;
+  const kind=$("f_kind").value, fields={};
+  if(kind==="character") for(const [k,id] of [["role","f_role"],["met","f_met"],["voice","f_voice"],["disposition","f_disp"],["wants","f_wants"],["bound","f_bound"]]){const el=$(id); if(el&&el.value.trim()) fields[k]=el.value.trim();}
+  await fetch("/api/node/save",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name,kind,body:$("f_body").value,fields})});
+  await loadState(); openNode(name);
+}
+async function delNode(name){
+  if(!confirm("Delete node “"+name+"”?")) return;
+  await fetch("/api/node/delete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name})});
+  await loadState(); $("reader").innerHTML="";
+}
+async function newWorld(){
+  const name=(prompt("New world name:")||"").trim(); if(!name){await loadWorlds();return;}
+  const r=await (await fetch("/api/new",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name})})).json();
+  if(r.ok) location.reload(); else {alert(r.error||"failed"); await loadWorlds();}
+}
+async function addThread(){
+  const q=(prompt("New thread — the open dramatic question:")||"").trim(); if(!q) return;
+  await fetch("/api/thread/save",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({thread:{question:q,status:"seeded",readiness:0.3}})});
+  await loadState();
+}
+async function delThread(id){
+  await fetch("/api/thread/delete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id})});
+  await loadState();
 }
 
 async function renderReader(st){
@@ -113,7 +165,8 @@ async function renderReader(st){
   const inMotion=(st.threads||[]).filter(t=>t.status!=="dormant");
   const plan=inMotion.map(t=>{
     const pct=Math.round((t.readiness||0)*100);
-    return `<div class="thread"><div class="tq">${esc(t.question)}</div>`+
+    return `<div class="thread"><a class="tctl" title="remove" onclick="delThread('${(t.id||'').replace(/'/g,"\\'")}')">✕</a>`+
+           `<div class="tq">${esc(t.question)}</div>`+
            `<div class="tbar"><div class="tfill" style="width:${pct}%"></div></div>`+
            `<div class="tstatus">${esc(t.status)} · ${pct}%</div></div>`;
   }).join("");
@@ -122,7 +175,8 @@ async function renderReader(st){
       if(g.findings&&g.findings.length) ck=`<div class="warn">⚠ ${g.findings.length} continuity note(s) — run 'loom check'</div>`;}catch(e){}
   $("reader").innerHTML=
     `<div class="kind">continuity</div><div class="facts">`+(f||`<span style="color:var(--muted)">no facts yet</span>`)+`</div>`+
-    (plan?`<div class="kind" style="margin-top:14px">the plan · what's ripening</div>${plan}`:"")+ck;
+    `<div class="kind" style="margin-top:14px">the plan · <a class="addlink" onclick="addThread()">＋ thread</a></div>`+
+    (plan||`<span style="color:var(--muted);font-size:12px">nothing ripening yet</span>`)+ck;
 }
 
 async function loadGraph(){
@@ -158,7 +212,7 @@ function addTurn(role,text){
 
 async function loadWorlds(){
   const w=await (await fetch("/api/worlds")).json();
-  $("worldsel").innerHTML=(w.campaigns||[]).map(n=>`<option${n===w.active?" selected":""}>${esc(n)}</option>`).join("");
+  $("worldsel").innerHTML=(w.campaigns||[]).map(n=>`<option${n===w.active?" selected":""}>${esc(n)}</option>`).join("")+`<option value="__new__">＋ new world…</option>`;
 }
 
 async function loadState(){
@@ -220,6 +274,7 @@ $("imagine").addEventListener("click",async()=>{
 });
 
 $("worldsel").addEventListener("change",async()=>{
+  if($("worldsel").value==="__new__"){ newWorld(); return; }
   await fetch("/api/use",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:$("worldsel").value})});
   location.reload();
 });
