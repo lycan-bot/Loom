@@ -29,9 +29,9 @@ def _graph(world: Path) -> dict:
 
 
 def make_handler(cfg: dict):
-    tpath = config.transcript_path(cfg)
-    world = config.world_dir(cfg)
-    spath = config.state_path(cfg)
+    def _ctx():
+        c = config.load()                 # reload each request so a campaign switch takes effect
+        return c, config.transcript_path(c), config.world_dir(c), config.state_path(c)
 
     class H(BaseHTTPRequestHandler):
         def log_message(self, *a):
@@ -51,6 +51,7 @@ def make_handler(cfg: dict):
             if u.path in ("/", "/index.html"):
                 return self._send(200, (STATIC / "index.html").read_bytes(),
                                   "text/html; charset=utf-8")
+            cfg, tpath, world, spath = _ctx()
             if u.path == "/api/state":
                 th = threads.load(spath.parent / "threads.json")
                 return self._send(200, {
@@ -78,6 +79,10 @@ def make_handler(cfg: dict):
                 if resp["kind"] == "character":
                     resp["card"] = character.card(node)
                 return self._send(200, resp)
+            if u.path == "/api/worlds":
+                base = config.ROOT / cfg["campaigns_dir"]
+                names = sorted(p.name for p in base.iterdir() if (p / "world").is_dir()) if base.exists() else []
+                return self._send(200, {"campaigns": names, "active": cfg["campaign"]})
             return self._send(404, {"error": "not found"})
 
         def do_POST(self):
@@ -87,6 +92,7 @@ def make_handler(cfg: dict):
                 body = json.loads(self.rfile.read(length) or b"{}")
             except Exception:
                 return self._send(400, {"error": "bad json"})
+            cfg, tpath, world, spath = _ctx()
 
             if u.path == "/api/turn":
                 text = (body.get("input") or "").strip()
@@ -133,6 +139,13 @@ def make_handler(cfg: dict):
                 added = imagine.bless(spath.parent / "threads.json", cands,
                                       approve=lambda k, q, c: c.id in approved)
                 return self._send(200, {"added": added})
+            if u.path == "/api/use":
+                name = (body.get("name") or "").strip()
+                base = config.ROOT / cfg["campaigns_dir"]
+                if not name or not (base / name / "world").is_dir():
+                    return self._send(400, {"error": "no such campaign"})
+                config.save({"campaign": name})
+                return self._send(200, {"active": name})
             return self._send(404, {"error": "not found"})
 
     return H

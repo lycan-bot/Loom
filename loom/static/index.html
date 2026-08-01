@@ -16,6 +16,7 @@
   header{display:flex;align-items:center;gap:14px;padding:10px 16px;border-bottom:1px solid var(--border);background:var(--panel)}
   header h1{margin:0;font-size:16px;letter-spacing:.5px;color:var(--accent);font-weight:600}
   header .meta{color:var(--muted);font-size:12px}
+  #worldsel{background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:5px;padding:2px 6px;font:inherit;font-size:12px;cursor:pointer}
   header .dot{width:8px;height:8px;border-radius:50%;background:#555;display:inline-block;margin-right:5px;vertical-align:middle}
   header .dot.ok{background:#5aa469} header .dot.bad{background:#c0564a}
   .wrap{display:grid;grid-template-columns:1fr 1fr;height:calc(100vh - 45px)}
@@ -62,7 +63,7 @@
 <body>
 <header>
   <h1>loom</h1>
-  <span class="meta" id="campaign">…</span>
+  <select id="worldsel" class="meta" title="switch world"></select>
   <span class="meta" style="margin-left:auto"><span class="dot" id="mdot"></span><span id="model">…</span></span>
 </header>
 <div class="wrap">
@@ -155,9 +156,14 @@ function addTurn(role,text){
   $("log").appendChild(d);$("log").scrollTop=$("log").scrollHeight;
 }
 
+async function loadWorlds(){
+  const w=await (await fetch("/api/worlds")).json();
+  $("worldsel").innerHTML=(w.campaigns||[]).map(n=>`<option${n===w.active?" selected":""}>${esc(n)}</option>`).join("");
+}
+
 async function loadState(){
   const st=await (await fetch("/api/state")).json();
-  $("campaign").textContent="campaign · "+st.campaign;
+  await loadWorlds();
   $("model").textContent=st.model.replace(/^https?:\/\//,"");
   $("log").innerHTML="";
   for(const e of st.transcript) addTurn(e.role,e.text);
@@ -213,6 +219,10 @@ $("imagine").addEventListener("click",async()=>{
   await loadState();
 });
 
+$("worldsel").addEventListener("change",async()=>{
+  await fetch("/api/use",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:$("worldsel").value})});
+  location.reload();
+});
 loadState();
 </script>
 </body>

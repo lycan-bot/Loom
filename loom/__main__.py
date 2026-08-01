@@ -7,6 +7,8 @@ Usage:
   python -m loom seal-check             verify nothing has leaked past the wall
   python -m loom check                  continuity guard — flag canon/plan inconsistencies
   python -m loom new <name>             create a new campaign
+  python -m loom worlds                 list campaigns (the shelf)
+  python -m loom use <name>             switch the active campaign
   python -m loom npcs                   sync character drives into relational threads
   python -m loom imagine [--yes]        dream new threads from the canon (imagination organ)
   python -m loom mechanics on|off       toggle the optional dice layer (impartial d20)
@@ -98,6 +100,24 @@ def cmd_new(cfg, name):
     print(f'set "campaign": "{name}" in config.json to make it live.')
 
 
+def cmd_worlds(cfg):
+    base = config.ROOT / cfg["campaigns_dir"]
+    names = sorted(p.name for p in base.iterdir() if (p / "world").is_dir()) if base.exists() else []
+    if not names:
+        print("no campaigns yet — 'loom new <name>' to create one.")
+        return
+    for n in names:
+        print(f"  {'* ' if n == cfg['campaign'] else '  '}{n}")
+
+
+def cmd_use(cfg, name):
+    if not (config.ROOT / cfg["campaigns_dir"] / name / "world").is_dir():
+        print(f"no such campaign '{name}'. 'loom worlds' to list, 'loom new {name}' to create.")
+        return
+    config.save({"campaign": name})
+    print(f"switched to '{name}'.")
+
+
 def cmd_status(cfg):
     tpath, world, spath = _paths(cfg)
     print(f"campaign  : {cfg['campaign']}")
@@ -178,6 +198,10 @@ def main(argv=None):
         cmd_mechanics(cfg, argv[1])
     elif cmd == "new" and len(argv) > 1:
         cmd_new(cfg, argv[1])
+    elif cmd == "worlds":
+        cmd_worlds(cfg)
+    elif cmd == "use" and len(argv) > 1:
+        cmd_use(cfg, argv[1])
     elif cmd == "status":
         cmd_status(cfg)
     elif cmd == "web":
