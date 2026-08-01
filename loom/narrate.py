@@ -37,9 +37,6 @@ def turn(player_input: str, cfg: dict, tpath: Path, world: Path, spath: Path) ->
     newly = threads.advance(th_list, scene_names)
     beat = director.decide(th_list, scene_names, pace, newly)
     beat_clause = director.clause(beat)          # capture BEFORE settle advances the stage
-    director.settle(beat)
-    if th_list:
-        threads.save(thpath, th_list)          # persist ripening + the beat's consequence
 
     canon_block = sec.wrap(_context_block(nodes, facts), "canon")
     system = (cfg["narrator_voice"] + "\n\n" + sec.UNTRUSTED_PREAMBLE +
@@ -62,6 +59,12 @@ def turn(player_input: str, cfg: dict, tpath: Path, world: Path, spath: Path) ->
     if sec.looks_compromised(narration):
         narration = sec.DEFLECTION       # the model caved or broke character — deflect in-fiction
     transcript.append(tpath, "narrator", narration)
+
+    # commit the turn's consequences ONLY after a successful narration — a failed model
+    # call (llm.chat raised above) must not advance the plan or the tension homeostat
+    director.settle(beat)
+    if th_list:
+        threads.save(thpath, th_list)          # persist ripening + the beat's consequence
 
     # advance the tension homeostat with this beat and persist it for next turn
     st2 = state.load(spath)

@@ -8,7 +8,7 @@ through guard_path), and this scan is the belt-and-suspenders audit on top.
 from __future__ import annotations
 import re
 from pathlib import Path
-from . import canon, state
+from . import canon, state, threads
 
 # markers that must never appear in fiction — signs the log bled into the real world
 _LEAK_PATTERNS = [
@@ -49,4 +49,7 @@ def check_campaign(world: Path, state_path: Path) -> list[str]:
     for k, v in state.load(state_path).items():
         for leak in leaks_in(f"{k}: {v}"):
             problems.append(f"state[{k}]: leak '{leak}'")
+    for t in threads.load(Path(state_path).parent / "threads.json"):
+        for leak in leaks_in(" ".join([t.question, t.seed, t.payoff, *t.entities])):
+            problems.append(f"thread[{t.id}]: leak '{leak}'")
     return problems

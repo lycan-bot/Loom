@@ -56,7 +56,11 @@ def cmd_consolidate(cfg, auto):
         return
     print("reading the session log…")
     existing = threads.load(spath.parent / "threads.json")
-    proposals = consolidate.propose(cfg, lines, existing)
+    try:
+        proposals = consolidate.propose(cfg, lines, existing)
+    except Exception as e:
+        print(f"[!] consolidation failed ({e}); nothing written.")
+        return
     print(f"proposed: {len(proposals['nodes'])} node(s), {len(proposals['state'])} state, "
           f"{len(proposals['threads_new'])} new thread(s), {len(proposals['threads_resolved'])} resolved, "
           f"{len(proposals['character_updates'])} disposition(s)")

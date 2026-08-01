@@ -63,9 +63,17 @@ loom/
   canon.py        markdown world-bible + [[links]]    (consolidate)
   state.py        continuity facts                    (mutate)
   retrieve.py     BM25-lite + optional embeddings, RRF-fused
-  consolidate.py  the diode: transcript → proposed nodes → you bless → canon
-  narrate.py      one turn: retrieve canon → prompt → append
-  seal.py         the wall
+  consolidate.py  the diode: transcript → proposed nodes/threads → you bless → canon
+  narrate.py      one turn: pace → direct → voice → narrate → append
+  pacing.py       the governor of restraint (hold vs offer) + tension homeostat
+  director.py     when a ripe thread becomes a beat (seed → ripen → payoff)
+  threads.py      the plan — open dramatic questions + world-clocks
+  npc.py          character drives → relational threads (moral tension)
+  imagine.py      dream new threads by recombining canon (sealed until blessed)
+  character.py    per-character voice + card
+  guard.py        the continuity guard (read-only consistency checks)
+  mechanics.py    the optional dice layer (default off)
+  prompt_security.py · seal.py   the wall (in-prompt fence + filesystem seal)
 serve.sh          loom's own sovereign model server (no shared control vector)
 campaigns/<name>/ transcript.jsonl · world/ · state.json
 ```
@@ -73,13 +81,15 @@ campaigns/<name>/ transcript.jsonl · world/ · state.json
 ## Quickstart
 
 ```bash
-./serve.sh                    # loom's own model server on :8090 (no shared persona vector)
-python -m loom status         # show the live campaign
-python -m loom play           # narrate (terminal)
-python -m loom web            # browser UI: story + world map + reader (:8100)
-python -m loom consolidate    # end of session: fold the log into canon (with approval)
-python -m loom seal-check      # audit the wall
-python -m loom new mycampaign  # start a fresh world
+./serve.sh                     # loom's own model server on :8090 (no shared persona vector)
+python -m loom web             # browser UI: story · world map · the plan · imagine (:8100)
+python -m loom play            # narrate in the terminal
+python -m loom consolidate     # fold the session into canon + threads (with approval)
+python -m loom imagine         # dream new threads from the canon
+python -m loom npcs            # sync character drives into relational threads
+python -m loom check           # continuity guard  ·  seal-check audits the wall
+python -m loom mechanics on    # toggle the optional dice layer
+python -m loom worlds          # list campaigns  ·  use <name> to switch  ·  new <name> to create
 ```
 
 Embeddings are optional (`use_embeddings`); lexical retrieval is the zero-dependency

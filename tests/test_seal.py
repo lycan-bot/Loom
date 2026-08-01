@@ -32,6 +32,14 @@ class SealTest(unittest.TestCase):
                          "A grey port where the [[Ash War]] began.", {"kind": "place"})
         self.assertEqual(seal.check_campaign(camp / "world", camp / "state.json"), [])
 
+    def test_leak_scan_flags_a_thread_leak(self):
+        from loom import threads as _threads
+        from loom.threads import Thread
+        camp = _campaign()
+        _threads.save(camp / "threads.json", [Thread("t", "who hides the ledger at /home/Fenrir/secret?")])
+        problems = seal.check_campaign(camp / "world", camp / "state.json")
+        self.assertTrue(any("thread" in p for p in problems))
+
 
 class DiodeTest(unittest.TestCase):
     def test_consolidate_writes_nothing_without_approval(self):
@@ -78,6 +86,28 @@ class NarrateTest(unittest.TestCase):
         self.assertEqual(out, "You arrive at the harbor.")
         log = transcript.read_all(camp / "transcript.jsonl")
         self.assertEqual([e["role"] for e in log], ["player", "narrator"])
+
+    def test_failed_model_call_does_not_advance_the_plan(self):
+        from loom import threads as _threads
+        from loom.threads import Thread
+        camp = _campaign()
+        canon.write_node(camp / "world", "Harbor", "A grey port.", {"kind": "place"})
+        _threads.save(camp / "threads.json",
+                      [Thread("t", "q", status="ready", readiness=0.9, entities=["Harbor"])])
+        before = (camp / "threads.json").read_text()
+        orig = llm.chat
+
+        def boom(*a, **k):
+            raise llm.LLMError("server down")
+
+        llm.chat = boom
+        try:
+            with self.assertRaises(llm.LLMError):
+                narrate.turn("I look around.", dict(config.DEFAULTS), camp / "transcript.jsonl",
+                             camp / "world", camp / "state.json")
+        finally:
+            llm.chat = orig
+        self.assertEqual((camp / "threads.json").read_text(), before)   # plan left untouched
 
 
 if __name__ == "__main__":
