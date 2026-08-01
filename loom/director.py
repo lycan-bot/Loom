@@ -14,6 +14,7 @@ Every world/seed/payoff beat is gated on low tension: nothing lands mid-intensit
 """
 from __future__ import annotations
 from dataclasses import dataclass
+from . import prompt_security as sec
 
 _TENSION_CEIL = 0.45
 
@@ -75,22 +76,23 @@ def settle(beat) -> None:
 
 def clause(beat) -> str:
     t = beat.thread
+    # thread text is model-authored (consolidation / imagine) → defang fence-spoofing before
+    # it enters the trusted system prompt
     if beat.mode == "payoff":
         stages = getattr(t, "stages", None)
         step = stages[t.stage] if stages and t.stage < len(stages) else t.payoff
-        tail = f" — {step}" if step else ""
-        return (f"\n\nPACING: the moment is right to draw the thread of “{t.question}” a little "
-                f"closer{tail}. Offer the player a gentle opening toward it, kept low-key and easy "
-                f"to decline. No forced drama or danger.")
+        tail = f" — {sec.neutralize(step)}" if step else ""
+        return (f"\n\nPACING: the moment is right to draw the thread of “{sec.neutralize(t.question)}” "
+                f"a little closer{tail}. Offer the player a gentle opening toward it, kept low-key "
+                f"and easy to decline. No forced drama or danger.")
     if beat.mode == "world":
-        return (f"\n\nTHE WORLD MOVES: independently of the player, {t.payoff or t.question}. Let "
-                f"this enter the scene naturally and in proportion, woven into what the player is "
+        return (f"\n\nTHE WORLD MOVES: independently of the player, {sec.neutralize(t.payoff or t.question)}. "
+                f"Let this enter the scene naturally and in proportion, woven into what the player is "
                 f"already doing — a turn of events, not an ambush.")
     if beat.mode == "seed":
-        hint = t.seed or t.question
-        return (f"\n\nUNDERCURRENT: something is latent here — {hint}. Weave only the faintest hint "
-                f"of it into the scene as a passing detail or atmosphere. Plant it; do NOT explain "
-                f"or develop it yet.")
+        return (f"\n\nUNDERCURRENT: something is latent here — {sec.neutralize(t.seed or t.question)}. "
+                f"Weave only the faintest hint of it into the scene as a passing detail or atmosphere. "
+                f"Plant it; do NOT explain or develop it yet.")
     if beat.mode == "hook":
         from . import pacing as _p
         return _p._OFFER_CLAUSE

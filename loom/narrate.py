@@ -31,7 +31,10 @@ def turn(player_input: str, cfg: dict, tpath: Path, world: Path, spath: Path) ->
     recent = transcript.recent(tpath, cfg["recent_turns"])
     pace = pacing.read(recent, tension)
 
-    scene_names = [n["name"] for n in nodes]
+    # proximity for the plan = only GENUINELY-matched canon (score>0). The retrieval
+    # fallback returns all nodes at score 0.0 to ground a vague turn — but those must NOT
+    # count as "near", or threads would ripen on the player's least-engaged input.
+    scene_names = [n["name"] for n in nodes if n.get("score", 0.0) > 0]
     thpath = spath.parent / "threads.json"
     th_list = threads.load(thpath)
     newly = threads.advance(th_list, scene_names)

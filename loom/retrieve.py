@@ -73,8 +73,8 @@ def retrieve(query: str, world: Path, cfg: dict, k: int | None = None) -> list[d
     ranked = lexical
     if cfg.get("use_embeddings"):
         vecs = llm.embed([query] + [d["body"] for d in docs], cfg)
-        if vecs:
-            qv, dvs = vecs[0], vecs[1:]
+        if vecs and len(vecs) == len(docs) + 1:      # shape guard: a short/reordered embed
+            qv, dvs = vecs[0], vecs[1:]               # response must fall back to lexical, not crash
             vec_ranked = sorted(
                 ((docs[i]["name"], _cosine(qv, dvs[i])) for i in range(len(docs))),
                 key=lambda x: x[1], reverse=True)

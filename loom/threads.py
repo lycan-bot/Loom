@@ -56,7 +56,12 @@ def load(path) -> list:
     out = []
     for t in raw if isinstance(raw, list) else []:
         if isinstance(t, dict) and t.get("id") and t.get("question"):
-            out.append(Thread(**{k: v for k, v in t.items() if k in known}))
+            th = Thread(**{k: v for k, v in t.items() if k in known})
+            try:                                         # a non-int clock must not crash advance()
+                th.clock = int(th.clock) if th.clock is not None else None
+            except (TypeError, ValueError):
+                th.clock = None
+            out.append(th)
     return out
 
 

@@ -114,14 +114,19 @@ def make_handler(cfg: dict):
                     return self._send(502, {"error": str(e)})
             if u.path == "/api/consolidate/apply":
                 proposals = body.get("proposals") or {}
+                if not isinstance(proposals, dict):
+                    return self._send(400, {"error": "bad proposals"})
                 ok = {"node": set(body.get("approved_nodes") or []),
                       "state": set(body.get("approved_state") or []),
                       "thread": set(body.get("approved_threads") or []),
                       "resolve": set(body.get("approved_resolved") or []),
                       "disposition": set(body.get("approved_dispositions") or [])}
-                written = consolidate.apply(
-                    proposals, world, spath,
-                    approve=lambda kind, name, _p: name in ok.get(kind, set()))
+                try:
+                    written = consolidate.apply(
+                        proposals, world, spath,
+                        approve=lambda kind, name, _p: name in ok.get(kind, set()))
+                except Exception as e:
+                    return self._send(502, {"error": str(e)})
                 return self._send(200, {"written": written})
             if u.path == "/api/imagine":
                 try:

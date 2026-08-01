@@ -9,6 +9,7 @@ Pairs with npc.py: the characters that *want* things (drives) now also *sound* l
 themselves and warm or cool toward the player.
 """
 from __future__ import annotations
+from . import prompt_security as sec
 
 
 def scene_characters(nodes) -> list:
@@ -30,11 +31,11 @@ def voice_clause(nodes) -> str:
     for c in scene_characters(nodes):
         bits = []
         if c["voice"]:
-            bits.append(f"speaks {c['voice']}")
+            bits.append(f"speaks {sec.neutralize(c['voice'])}")
         if c["disposition"]:
-            bits.append(f"is {c['disposition']} toward the player")
+            bits.append(f"is {sec.neutralize(c['disposition'])} toward the player")
         if bits:
-            lines.append(f"- {c['name']} {'; '.join(bits)}")
+            lines.append(f"- {sec.neutralize(c['name'])} {'; '.join(bits)}")
     if not lines:
         return ""
     return "\n\nVOICES (keep each character consistent, distinct from the narrator):\n" + "\n".join(lines)

@@ -32,6 +32,9 @@ class SealTest(unittest.TestCase):
                          "A grey port where the [[Ash War]] began.", {"kind": "place"})
         self.assertEqual(seal.check_campaign(camp / "world", camp / "state.json"), [])
 
+    def test_windows_path_leak_is_caught(self):
+        self.assertTrue(seal.leaks_in(r"D:\Models\gemma.gguf"))   # single-backslash regex fix
+
     def test_leak_scan_flags_a_thread_leak(self):
         from loom import threads as _threads
         from loom.threads import Thread

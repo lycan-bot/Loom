@@ -13,7 +13,7 @@ from . import canon, state, threads
 # markers that must never appear in fiction — signs the log bled into the real world
 _LEAK_PATTERNS = [
     re.compile(r"/home/[^\s'\"]+"),
-    re.compile(r"[A-Za-z]:\\\\[^\s'\"]+"),
+    re.compile(r"[A-Za-z]:\\[^\s'\"]+"),
     re.compile(r"\bprimarch\b", re.I),
     re.compile(r"\bSIGILUS_CONFIG_DIR\b"),
     re.compile(r"\binviolable_manifest\b", re.I),
@@ -44,12 +44,13 @@ def check_campaign(world: Path, state_path: Path) -> list[str]:
     """Scan all canon + state for real-world leakage. Returns problems (empty = sealed)."""
     problems = []
     for node in canon.load_all(world):
-        for leak in leaks_in(node["body"]):
+        text = node["body"] + " " + " ".join(str(v) for v in node["frontmatter"].values())
+        for leak in leaks_in(text):                      # body AND frontmatter (voice/disposition/…)
             problems.append(f"{node['path'].name}: leak '{leak}'")
     for k, v in state.load(state_path).items():
         for leak in leaks_in(f"{k}: {v}"):
             problems.append(f"state[{k}]: leak '{leak}'")
     for t in threads.load(Path(state_path).parent / "threads.json"):
-        for leak in leaks_in(" ".join([t.question, t.seed, t.payoff, *t.entities])):
+        for leak in leaks_in(" ".join(str(x) for x in [t.question, t.seed, t.payoff, *t.entities])):
             problems.append(f"thread[{t.id}]: leak '{leak}'")
     return problems

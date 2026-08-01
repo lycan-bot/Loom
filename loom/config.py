@@ -62,9 +62,12 @@ def load(path: str | os.PathLike | None = None) -> dict:
     p = Path(path) if path else ROOT / "config.json"
     if p.exists():
         try:
-            cfg.update(json.loads(p.read_text(encoding="utf-8")))
+            loaded = json.loads(p.read_text(encoding="utf-8"))
         except Exception as e:
             raise RuntimeError(f"could not parse {p}: {e}")
+        if not isinstance(loaded, dict):
+            raise RuntimeError(f"{p} must be a JSON object")
+        cfg.update(loaded)
     return cfg
 
 
@@ -83,7 +86,11 @@ def save(updates: dict, path=None) -> dict:
 
 
 def campaign_dir(cfg: dict) -> Path:
-    return ROOT / cfg["campaigns_dir"] / cfg["campaign"]
+    base = ROOT / cfg["campaigns_dir"]
+    name = str(cfg["campaign"])
+    if (base / name).resolve() != base.resolve() and base.resolve() not in (base / name).resolve().parents:
+        raise ValueError(f"unsafe campaign name (escapes the campaigns dir): {name!r}")
+    return base / name
 
 def transcript_path(cfg: dict) -> Path:
     return campaign_dir(cfg) / "transcript.jsonl"

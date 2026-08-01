@@ -12,6 +12,7 @@ false-high tension can only SUPPRESS an offer, never spawn one — the governor 
 on the side of leaving the player alone.
 """
 from __future__ import annotations
+import re
 from dataclasses import dataclass
 
 # low-agency player inputs — the player casting about, not driving the scene
@@ -34,6 +35,10 @@ _TENSE = {"blood", "scream", "attack", "danger", "knife", "sword", "fight", "run
           "grabbed", "weapon", "struck", "wound", "corpse", "ambush", "blade", "screamed"}
 _CALM = {"rest", "quiet", "calm", "warm", "gentle", "peace", "settle", "breathe", "still",
          "soft", "ease", "sleep", "drifted", "murmur", "lull", "hush", "slow", "gently"}
+
+# match cues on WORD boundaries — substring counting flags 'blade'→bladesmith, 'dead'→deadline, etc.
+_TENSE_RE = re.compile(r"\b(" + "|".join(re.escape(w.strip()) for w in _TENSE) + r")\b")
+_CALM_RE = re.compile(r"\b(" + "|".join(re.escape(w.strip()) for w in _CALM) + r")\b")
 
 
 @dataclass(frozen=True)
@@ -59,8 +64,8 @@ def _drive(text: str) -> float:
 
 def _intensity(text: str) -> float:
     t = (text or "").lower()
-    tense = sum(t.count(c) for c in _TENSE)
-    calm = sum(t.count(c) for c in _CALM)
+    tense = len(_TENSE_RE.findall(t))
+    calm = len(_CALM_RE.findall(t))
     if tense == 0 and calm == 0:
         return 0.3                          # neutral scene
     return min(1.0, tense / (tense + calm + 1))

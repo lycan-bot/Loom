@@ -15,6 +15,12 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(d["campaign"], "alpha")
         self.assertTrue(d["mechanics"])
 
+    def test_load_rejects_non_object(self):
+        p = Path(tempfile.mkdtemp()) / "config.json"
+        p.write_text("[1, 2, 3]")
+        with self.assertRaises(RuntimeError):
+            config.load(p)
+
     def test_load_merges_over_defaults(self):
         p = Path(tempfile.mkdtemp()) / "config.json"
         p.write_text('{"campaign":"beta"}')

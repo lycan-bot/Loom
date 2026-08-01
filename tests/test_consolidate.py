@@ -32,6 +32,17 @@ class ProposeTest(unittest.TestCase):
         self.assertEqual(out["threads_resolved"], ["old-q"])
         self.assertEqual(out["nodes"], [])            # defaults still fill
 
+    def test_propose_parses_character_updates(self):
+        payload = json.dumps({"character_updates": [{"name": "Mara", "disposition": "warmer"}]})
+        orig = llm.complete
+        llm.complete = lambda *a, **k: payload
+        try:
+            out = consolidate.propose(_CFG, [{"role": "player", "text": "hi"}], [])
+        finally:
+            llm.complete = orig
+        self.assertEqual(out["character_updates"][0]["disposition"], "warmer")
+        self.assertEqual(out["nodes"], [])            # missing keys default
+
 
 class LenientTest(unittest.TestCase):
     def test_repairs_truncated_object(self):
