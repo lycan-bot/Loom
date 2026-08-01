@@ -9,6 +9,7 @@ Usage:
   python -m loom new <name>             create a new campaign
   python -m loom npcs                   sync character drives into relational threads
   python -m loom imagine [--yes]        dream new threads from the canon (imagination organ)
+  python -m loom mechanics on|off       toggle the optional dice layer (impartial d20)
   python -m loom web [--port N]         browser UI (play + world map), default :8100
 """
 from __future__ import annotations
@@ -101,10 +102,17 @@ def cmd_status(cfg):
     tpath, world, spath = _paths(cfg)
     print(f"campaign  : {cfg['campaign']}")
     print(f"model     : {cfg['llm_url']}  (embeddings: {cfg['use_embeddings']})")
+    print(f"mechanics : {'on' if cfg.get('mechanics') else 'off'}")
     print(f"transcript: {len(transcript.read_all(tpath))} lines")
     print(f"canon     : {len(canon.load_all(world))} nodes")
     print(f"state     : {len([k for k in state.load(spath) if not k.startswith('_')])} facts")
     print(f"threads   : {len([t for t in threads.load(spath.parent / 'threads.json') if t.status != 'resolved'])} pending")
+
+
+def cmd_mechanics(cfg, arg):
+    on = arg == "on"
+    config.save({"mechanics": on})
+    print(f"mechanics {'ON — an impartial d20 now decides uncertain actions' if on else 'off'}.")
 
 
 def cmd_check(cfg):
@@ -166,6 +174,8 @@ def main(argv=None):
         cmd_seal_check(cfg)
     elif cmd == "check":
         cmd_check(cfg)
+    elif cmd == "mechanics" and len(argv) > 1:
+        cmd_mechanics(cfg, argv[1])
     elif cmd == "new" and len(argv) > 1:
         cmd_new(cfg, argv[1])
     elif cmd == "status":

@@ -34,6 +34,7 @@ DEFAULTS = {
     "recent_turns":     8,    # transcript lines kept for immediate continuity
     "tension_baseline": 0.15, # a campaign's resting dramatic tension (cozy 0.05 … grim 0.35)
     "tension_decay":    0.7,  # how slowly tension returns to baseline after a climax
+    "mechanics":        False, # opt-in dice: uncertain actions decided by an impartial d20
 
     # --- which campaign is live ---
     "campaign":        "example",
@@ -65,6 +66,20 @@ def load(path: str | os.PathLike | None = None) -> dict:
         except Exception as e:
             raise RuntimeError(f"could not parse {p}: {e}")
     return cfg
+
+
+def save(updates: dict, path=None) -> dict:
+    """Merge `updates` into config.json (creating it) and return the merged config."""
+    p = Path(path) if path else ROOT / "config.json"
+    current = {}
+    if p.exists():
+        try:
+            current = json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            current = {}
+    current.update(updates)
+    p.write_text(json.dumps(current, indent=2, ensure_ascii=False), encoding="utf-8")
+    return current
 
 
 def campaign_dir(cfg: dict) -> Path:
