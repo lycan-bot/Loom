@@ -84,6 +84,20 @@ class ApplyThreadsTest(unittest.TestCase):
         self.assertEqual(canon.read_node(camp / "world", "Mara")["frontmatter"].get("disposition"),
                          "warming to the stranger")
 
+    def test_node_fields_written_and_merged(self):
+        camp = _camp()
+        consolidate.apply({"nodes": [{"name": "Mara", "body": "A fisher.", "kind": "character",
+                                       "fields": {"role": "a fisher", "met": "on the docks"}}]},
+                          camp / "world", camp / "state.json", approve=lambda *a: True)
+        n = canon.read_node(camp / "world", "Mara")
+        self.assertEqual(n["frontmatter"].get("role"), "a fisher")
+        self.assertEqual(n["frontmatter"].get("met"), "on the docks")
+        consolidate.apply({"nodes": [{"name": "Mara", "body": "", "kind": "character",
+                                       "fields": {"met": "again at the tavern"}}]},
+                          camp / "world", camp / "state.json", approve=lambda *a: True)
+        self.assertEqual(canon.read_node(camp / "world", "Mara")["frontmatter"].get("met"),
+                         "again at the tavern")
+
     def test_skips_duplicate_body(self):
         camp = _camp()
         canon.write_node(camp / "world", "Mara", "A fisher who left.", {"kind": "character"})

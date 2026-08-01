@@ -38,3 +38,17 @@ def voice_clause(nodes) -> str:
     if not lines:
         return ""
     return "\n\nVOICES (keep each character consistent, distinct from the narrator):\n" + "\n".join(lines)
+
+
+def card(node) -> dict:
+    """A structured character card from a canon node — who/what they are, when/where they
+    were met, their drive, voice, and disposition. Frontmatter fields + the body."""
+    fm = node["frontmatter"]
+
+    def g(k):
+        return str(fm.get(k, "")).strip()
+
+    return {"name": node["name"], "role": g("role"), "met": g("met"),
+            "voice": g("voice"), "disposition": g("disposition"),
+            "want": g("wants"), "bound": g("bound"),
+            "description": node["body"].strip()}

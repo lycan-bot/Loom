@@ -10,7 +10,7 @@ import json
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from . import config, canon, state, transcript, narrate, consolidate, llm, threads, imagine, guard
+from . import config, canon, state, transcript, narrate, consolidate, llm, threads, imagine, guard, character
 
 STATIC = Path(__file__).resolve().parent / "static"
 
@@ -73,9 +73,11 @@ def make_handler(cfg: dict):
                 node = canon.read_node(world, (q.get("name") or [""])[0])
                 if not node:
                     return self._send(404, {"error": "no such node"})
-                return self._send(200, {"name": node["name"], "body": node["body"],
-                                        "kind": node["frontmatter"].get("kind", "lore"),
-                                        "links": node["links"]})
+                resp = {"name": node["name"], "body": node["body"],
+                        "kind": node["frontmatter"].get("kind", "lore"), "links": node["links"]}
+                if resp["kind"] == "character":
+                    resp["card"] = character.card(node)
+                return self._send(200, resp)
             return self._send(404, {"error": "not found"})
 
         def do_POST(self):

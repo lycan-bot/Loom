@@ -50,7 +50,7 @@ story momentum. Currently open threads:
 
 Respond with ONE json object:
 {
-  "nodes":   [{"name": "...", "body": "markdown, may use [[links]]", "kind": "character|place|faction|event|lore"}],
+  "nodes":   [{"name": "...", "body": "markdown, may use [[links]]", "kind": "character|place|faction|event|lore", "fields": {"role": "(character only) who/what they are, short", "met": "(character only) when + where they were first met"}}],
   "state":   {"key": "value"},
   "threads_new":      [{"question": "a NEW open dramatic question this session RAISED", "entities": ["canon names it involves"], "seed": "a subtle detail to foreshadow it later", "payoff": "what answering it might look like"}],
   "threads_resolved": ["<id of an open thread the session ANSWERED, if any>"],
@@ -102,18 +102,26 @@ def apply(proposals: dict, world: Path, state_path: Path, approve) -> dict:
     for node in proposals.get("nodes", []):
         name = node.get("name")
         body = (node.get("body") or "").strip()
-        if not name:
+        fields = {k: v for k, v in (node.get("fields") or {}).items() if v}   # card fields (role/met/…)
+        if not name or not approve("node", name, node):
             continue
-        if approve("node", name, node):
-            existing = canon.read_node(world, name)
-            if existing is None:                                  # create
-                canon.write_node(world, name, body, {"kind": node.get("kind", "lore")})
-                written["nodes"].append(name)
-            elif body and body not in existing["body"]:           # update: append novel content,
-                merged = existing["body"].rstrip() + "\n\n" + body   # preserving frontmatter (drives!)
-                canon.write_node(world, name, merged, existing["frontmatter"])
-                written["nodes"].append(name)
-            # else: node exists and nothing new to add — leave it untouched
+        existing = canon.read_node(world, name)
+        if existing is None:                                      # create, with any card fields
+            canon.write_node(world, name, body, {"kind": node.get("kind", "lore"), **fields})
+            written["nodes"].append(name)
+            continue
+        fm = dict(existing["frontmatter"])                        # preserve drives, voice, etc.
+        new_body, touched = existing["body"], False
+        if body and body not in existing["body"]:                 # append novel content
+            new_body = existing["body"].rstrip() + "\n\n" + body
+            touched = True
+        for k, v in fields.items():                               # merge card fields
+            if fm.get(k) != v:
+                fm[k] = v
+                touched = True
+        if touched:
+            canon.write_node(world, name, new_body, fm)
+            written["nodes"].append(name)
     st = state.load(state_path)
     changed = False
     for key, val in (proposals.get("state") or {}).items():

@@ -20,6 +20,16 @@ class CharacterTest(unittest.TestCase):
     def test_empty_when_no_voiced_characters(self):
         self.assertEqual(character.voice_clause([_node("Sil", kind="character")]), "")
 
+    def test_card_fields(self):
+        node = {"name": "Mara", "body": "A weathered fisher.", "links": [],
+                "frontmatter": {"kind": "character", "role": "a fisher", "met": "on the docks",
+                                "wants": "to leave"}}
+        c = character.card(node)
+        self.assertEqual(c["role"], "a fisher")
+        self.assertEqual(c["met"], "on the docks")
+        self.assertEqual(c["want"], "to leave")
+        self.assertEqual(c["description"], "A weathered fisher.")
+
 
 if __name__ == "__main__":
     unittest.main()

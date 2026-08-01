@@ -55,6 +55,8 @@
   .tfill{height:100%;background:var(--accent)}
   .tstatus{font-size:11px;color:var(--muted)}
   .warn{margin-top:12px;color:var(--event);font-size:12px}
+  .crow{font-size:12.5px;margin:3px 0;color:var(--text)}
+  .clabel{color:var(--muted);text-transform:uppercase;font-size:10.5px;letter-spacing:.5px;margin-right:4px}
 </style>
 </head>
 <body>
@@ -94,6 +96,13 @@ async function openNode(name){
   const r=await fetch("/api/node?name="+encodeURIComponent(name));
   if(!r.ok) return;
   const n=await r.json();
+  if(n.card){
+    const c=n.card, row=(l,v)=>v?`<div class="crow"><span class="clabel">${l}</span> ${esc(v)}</div>`:"";
+    $("reader").innerHTML=`<h2>${esc(c.name)}</h2><div class="kind">character${c.role?" · "+esc(c.role):""}</div>`+
+      row("met",c.met)+row("wants",c.want)+row("held by",c.bound)+row("voice",c.voice)+row("toward you",c.disposition)+
+      `<div class="body" style="margin-top:10px">${mdToHtml(c.description)}</div>`;
+    return;
+  }
   $("reader").innerHTML=`<h2>${esc(n.name)}</h2><div class="kind">${esc(n.kind)}</div>`+
     `<div class="body">${mdToHtml(n.body)}</div>`;
 }
