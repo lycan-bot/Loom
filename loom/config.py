@@ -23,6 +23,8 @@ DEFAULTS = {
     # wants clean JSON, unlike a wild uncensored narrator). Blank → reuse the narrator.
     "consolidate_llm_url": "",
     "consolidate_model":   "",
+    "consolidate_api_key": "",         # a separate key for the archivist endpoint (falls back to api_key)
+    "imagine_on_consolidate": False,   # opt-in: dream new threads at the end of consolidation
 
     # --- embeddings are OPTIONAL; lexical retrieval is the zero-dep default ---
     "use_embeddings":  False,

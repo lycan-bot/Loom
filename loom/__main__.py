@@ -78,6 +78,17 @@ def cmd_consolidate(cfg, auto):
     print(f"\nwrote {len(written['nodes'])} node(s), {len(written['state'])} state, "
           f"{len(written['threads'])} thread(s), {len(written['resolved'])} resolved, "
           f"{len(written['dispositions'])} disposition(s).")
+    if cfg.get("imagine_on_consolidate"):
+        cands = imagine.propose(world, spath.parent / "threads.json", cfg, n=2)
+        if cands:
+            print(f"\nimagined {len(cands)} candidate thread(s) from the updated canon:")
+            for c in cands:
+                print(f"  ? {c.question}")
+
+            def bless_approve(kind, q, c):
+                return auto or input(f"  bless '{q[:50]}'? [y/N] ").strip().lower() in ("y", "yes")
+
+            print(f"blessed {len(imagine.bless(spath.parent / 'threads.json', cands, bless_approve))} dreamed thread(s).")
     problems = seal.check_campaign(world, spath)
     if problems:
         print("[!] SEAL WARNING:", *problems, sep="\n  ")

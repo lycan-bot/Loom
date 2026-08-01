@@ -31,6 +31,36 @@ class RetrieveTest(unittest.TestCase):
         self.assertTrue(all(n["score"] == 0.0 for n in r))       # fallback grounding, not proximity
 
 
+class EmbeddingsTest(unittest.TestCase):
+    def test_fusion_when_shapes_match(self):
+        w = _world()
+        canon.write_node(w, "A", "alpha text")
+        canon.write_node(w, "B", "beta text")
+        cfg = dict(config.DEFAULTS)
+        cfg["use_embeddings"] = True
+        orig = llm.embed
+        llm.embed = lambda texts, c: [[1.0, 0.0], [0.0, 1.0], [0.9, 0.1]]   # q, A, B (B ~ q)
+        try:
+            r = retrieve.retrieve("query", w, cfg)
+        finally:
+            llm.embed = orig
+        self.assertEqual(len(r), 2)                          # fused, no crash
+
+    def test_wrong_shape_falls_back_not_crashes(self):
+        w = _world()
+        canon.write_node(w, "A", "alpha")
+        canon.write_node(w, "B", "beta")
+        cfg = dict(config.DEFAULTS)
+        cfg["use_embeddings"] = True
+        orig = llm.embed
+        llm.embed = lambda texts, c: [[1.0, 0.0]]            # too few → shape guard → lexical
+        try:
+            r = retrieve.retrieve("zzz", w, cfg)
+        finally:
+            llm.embed = orig
+        self.assertEqual(len(r), 2)                          # no IndexError
+
+
 class ProximityTest(unittest.TestCase):
     def _turn(self, w, inp):
         camp = w.parent

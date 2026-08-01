@@ -78,6 +78,8 @@ def propose(cfg: dict, session_lines: list[dict], existing_threads=None) -> dict
         ccfg["llm_url"] = cfg["consolidate_llm_url"]
     if cfg.get("consolidate_model"):
         ccfg["llm_model"] = cfg["consolidate_model"]
+    if cfg.get("consolidate_api_key"):
+        ccfg["api_key"] = cfg["consolidate_api_key"]
     open_str = "\n".join(f"- [{t.id}] {t.question}" for t in (existing_threads or [])
                          if getattr(t, "status", "") != "resolved") or "(none yet)"
     log_text = "\n".join(f"{e.get('role', '?')}: {e.get('text', '')}" for e in session_lines)
