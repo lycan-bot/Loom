@@ -51,8 +51,9 @@ def advance(cfg, world, threads_path):
     # small in-character step toward it while the player is away (grounded, propose-only, and — unlike
     # clocks — they do NOT resolve their relational thread; that dramatic payoff stays for live play).
     moves = []
-    if depth > 0:
-        n = max(1, round(depth * float(cfg.get("sleep_moves", 2))))
+    sm = float(cfg.get("sleep_moves", 2))
+    if depth > 0 and sm > 0:                             # sleep_moves 0 → clocks-only sleep (off-switch)
+        n = max(1, round(depth * sm))
         ds = npc.drives(world)
         ds.sort(key=lambda d: not d[1].tension)          # tensioned drives first (more dramatic); stable
         moves = [(name, m) for name, m, _e in ds[:n]]

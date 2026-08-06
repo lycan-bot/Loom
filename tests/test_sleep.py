@@ -85,6 +85,14 @@ class NpcMovesTest(unittest.TestCase):
         self.assertIn("leave the harbor", cap["p"])      # grounded in the stated want
         self.assertIn("berths", r["recap"])
 
+    def test_sleep_moves_zero_disables_npc_moves(self):
+        camp = _camp()
+        canon.write_node(camp / "world", "Dockhand", "a weary dockhand", {"kind": "character", "wants": "to leave"})
+        cfg = dict(config.DEFAULTS); cfg["depth"] = 1.0; cfg["sleep_moves"] = 0
+        r = sleep.advance(cfg, camp / "world", camp / "threads.json")
+        self.assertEqual(r["moves"], [])                 # off-switch: no one moves
+        self.assertFalse(r["pending"])                   # and with no clocks, the sleep is quiet
+
     def test_no_characters_no_clocks_is_quiet(self):
         camp = _camp()
         canon.write_node(camp / "world", "Harbor", "a cold harbor", {"kind": "place"})
