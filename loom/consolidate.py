@@ -163,7 +163,8 @@ def apply(proposals: dict, world: Path, state_path: Path, approve) -> dict:
     garbled reply can't leave half-written canon (propose→bless atomicity).
     """
     p = _normalize(proposals)
-    written: dict[str, list] = {"nodes": [], "state": [], "threads": [], "resolved": [], "dispositions": []}
+    written: dict[str, list] = {"nodes": [], "state": [], "threads": [], "resolved": [],
+                                "dispositions": [], "locations": []}
     for node in p["nodes"]:
         name, body, fields = node["name"], node["body"], node["fields"]
         if not approve("node", name, node):
@@ -227,12 +228,18 @@ def apply(proposals: dict, world: Path, state_path: Path, approve) -> dict:
         node = canon.read_node(world, name)
         if node is None or node["frontmatter"].get("kind") != "character":
             continue
-        if approve("disposition", name, cu):
-            fm = dict(node["frontmatter"])
-            if cu["disposition"]:
-                fm["disposition"] = cu["disposition"]
-            if cu["location"]:                            # NPCs relocate over play → groups shift
-                fm["location"] = cu["location"]
-            canon.write_node(world, name, node["body"], fm)
+        fm = dict(node["frontmatter"])
+        touched = False
+        # disposition (a feeling) and location (a MOVE) are DISTINCT changes — gate them separately
+        # so a relocation is disclosed and independently refusable, not smuggled in under a feeling
+        if cu["disposition"] and approve("disposition", name, cu["disposition"]):
+            fm["disposition"] = cu["disposition"]
             written["dispositions"].append(name)
+            touched = True
+        if cu["location"] and approve("location", name, cu["location"]):
+            fm["location"] = cu["location"]              # NPCs relocate over play → world-round groups shift
+            written["locations"].append(name)
+            touched = True
+        if touched:
+            canon.write_node(world, name, node["body"], fm)
     return written

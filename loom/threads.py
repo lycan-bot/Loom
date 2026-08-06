@@ -14,7 +14,9 @@ Lifecycle:  dormant → seeded → ripening → ready → resolved
 """
 from __future__ import annotations
 import json
+import os
 import re
+import tempfile
 from dataclasses import dataclass, field, asdict, fields
 from pathlib import Path
 
@@ -82,10 +84,17 @@ def load(path) -> list:
 def save(path, threads) -> None:
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    tmp = p.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps([asdict(t) for t in threads], indent=2, ensure_ascii=False),
-                   encoding="utf-8")
-    tmp.replace(p)
+    fd, tmp = tempfile.mkstemp(dir=p.parent, prefix=p.name + ".", suffix=".tmp")   # unique: no concurrent collision
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump([asdict(t) for t in threads], f, indent=2, ensure_ascii=False)
+        os.replace(tmp, p)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def advance(threads, scene_names) -> list:

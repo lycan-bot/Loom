@@ -5,7 +5,7 @@ The node format and `parse_frontmatter` are lifted from the Primarch vault, so a
 campaign world is just a folder of plain, Obsidian-readable markdown.
 """
 from __future__ import annotations
-import os, re
+import os, re, tempfile
 from pathlib import Path
 
 _LINK_RE = re.compile(r"\[\[([^\]]+)\]\]")
@@ -53,9 +53,17 @@ def links_in(content: str) -> list[str]:
 
 def _atomic_write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(text, encoding="utf-8")
-    os.replace(tmp, path)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".tmp")   # unique temp
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def _fm_clean(v) -> str:
@@ -81,7 +89,7 @@ def read_node(world: Path, name: str) -> dict | None:
     path = world / f"{slug(name)}.md"
     if not path.exists():
         return None
-    content = path.read_text(encoding="utf-8")
+    content = path.read_text(encoding="utf-8", errors="replace")   # a corrupt byte must not crash a turn
     return {"name": name, "path": path, "frontmatter": parse_frontmatter(content),
             "body": _body_of(content), "links": links_in(content)}
 
@@ -91,7 +99,7 @@ def load_all(world: Path) -> list[dict]:
         return []
     out = []
     for path in sorted(world.glob("*.md")):
-        content = path.read_text(encoding="utf-8")
+        content = path.read_text(encoding="utf-8", errors="replace")   # corrupt canon → degrade, don't crash
         fm = parse_frontmatter(content)
         out.append({"name": fm.get("title", path.stem), "path": path,
                     "frontmatter": fm, "body": _body_of(content),

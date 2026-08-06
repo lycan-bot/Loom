@@ -107,6 +107,26 @@ class ApplyThreadsTest(unittest.TestCase):
         self.assertEqual(fm.get("location"), "The Salt & Anchor")     # moved
         self.assertEqual(fm.get("wants"), "the ledger")               # drive preserved
 
+    def test_location_gate_is_independent_of_disposition(self):
+        # a MOVE must be independently refusable — approving a feeling can't smuggle in a relocation
+        camp = _camp()
+        canon.write_node(camp / "world", "Rook", "A rogue.",
+                         {"kind": "character", "disposition": "cold", "location": "The Docks"})
+        consolidate.apply({"character_updates": [{"name": "Rook", "disposition": "warmer", "location": "The Tavern"}]},
+                          camp / "world", camp / "state.json",
+                          approve=lambda kind, name, p: kind == "disposition")   # bless feeling, refuse move
+        fm = canon.read_node(camp / "world", "Rook")["frontmatter"]
+        self.assertEqual(fm.get("disposition"), "warmer")     # applied
+        self.assertEqual(fm.get("location"), "The Docks")     # move refused → stays put
+
+    def test_location_counted_as_a_move_not_a_disposition(self):
+        camp = _camp()
+        canon.write_node(camp / "world", "Rook", "A rogue.", {"kind": "character", "location": "The Docks"})
+        w = consolidate.apply({"character_updates": [{"name": "Rook", "location": "The Tavern"}]},
+                              camp / "world", camp / "state.json", approve=lambda *a: True)
+        self.assertEqual(w["locations"], ["Rook"])
+        self.assertEqual(w["dispositions"], [])               # a relocation is not a feeling
+
     def test_node_fields_written_and_merged(self):
         camp = _camp()
         consolidate.apply({"nodes": [{"name": "Mara", "body": "A fisher.", "kind": "character",

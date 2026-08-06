@@ -301,5 +301,30 @@ class WebGuardTest(unittest.TestCase):
         self.assertIn(b"400", resp[:16])                             # a response, not a silent drop
 
 
+class StateConcurrencyTest(unittest.TestCase):
+    def test_concurrent_saves_do_not_collide_on_a_shared_tmp(self):
+        # the world round adds a 2nd per-turn state write; a fixed '.tmp' would FileNotFoundError
+        # when two turns save at once. A unique temp per write must let concurrent saves succeed.
+        camp = _camp()
+        sp = camp / "state.json"
+        state.save(sp, {"x": 0})
+        errors = []
+
+        def worker(i):
+            try:
+                for _ in range(25):
+                    s = state.load(sp); s["x"] = i; state.save(sp, s)
+            except Exception as e:                             # a shared-tmp collision would land here
+                errors.append(e)
+
+        ts = [threading.Thread(target=worker, args=(i,)) for i in range(6)]
+        for t in ts:
+            t.start()
+        for t in ts:
+            t.join()
+        self.assertEqual(errors, [])
+        self.assertIsInstance(state.load(sp), dict)            # the file survives intact
+
+
 if __name__ == "__main__":
     unittest.main()

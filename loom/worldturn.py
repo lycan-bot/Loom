@@ -111,10 +111,19 @@ def run(cfg, world) -> dict:
         data = json.loads(m.group(0)) if m else {}
     except Exception:
         data = {}
-    turns = [{"where": _s(t.get("where")).strip(),
-              "who": [w for w in (t.get("who") or []) if isinstance(w, str)],
-              "beat": _s(t.get("beat")).strip()}
-             for t in (data.get("turns") or []) if isinstance(t, dict) and _s(t.get("beat")).strip()]
+    # model output is grammar-valid JSON but NOT shape-checked — guard every iterable with
+    # isinstance (a non-list `turns`/`who` would otherwise crash here, OUTSIDE the try above)
+    raw_turns = data.get("turns")
+    turns = []
+    for t in (raw_turns if isinstance(raw_turns, list) else []):
+        if not isinstance(t, dict):
+            continue
+        beat = _s(t.get("beat")).strip()
+        if not beat:
+            continue
+        who_raw = t.get("who")
+        who = [w for w in who_raw if isinstance(w, str)] if isinstance(who_raw, list) else []
+        turns.append({"where": _s(t.get("where")).strip(), "who": who, "beat": beat})
     return {"turns": turns, "pending": True}
 
 

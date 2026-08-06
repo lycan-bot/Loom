@@ -258,12 +258,15 @@ $("consolidate").addEventListener("click",async()=>{
   const stateKeys=Object.keys(p.state||{});
   const tnew=(p.threads_new||[]).map(t=>t.question);
   const tres=(p.threads_resolved||[]);
-  const cu=(p.character_updates||[]).map(c=>c.name);
+  const cu=(p.character_updates||[]);
+  const disp=cu.filter(c=>c.disposition).map(c=>c.name);
+  const moveNames=cu.filter(c=>c.location).map(c=>c.name);
+  const moves=cu.filter(c=>c.location).map(c=>`${c.name} → ${esc(String(c.location))}`);
   if(!names.length&&!stateKeys.length&&!tnew.length&&!tres.length&&!cu.length){addTurn("sys","nothing new to fold in.");return;}
-  const msg=`Fold into canon?\n\ncanon: ${names.join(", ")||"—"}\nstate: ${stateKeys.join(", ")||"—"}\nnew threads: ${tnew.join("  |  ")||"—"}\nresolved: ${tres.join(", ")||"—"}\ndispositions: ${cu.join(", ")||"—"}\n\n${p.summary||""}`;
+  const msg=`Fold into canon?\n\ncanon: ${names.join(", ")||"—"}\nstate: ${stateKeys.join(", ")||"—"}\nnew threads: ${tnew.join("  |  ")||"—"}\nresolved: ${tres.join(", ")||"—"}\ndispositions: ${disp.join(", ")||"—"}\nmoves: ${moves.join(", ")||"—"}\n\n${p.summary||""}`;
   if(!confirm(msg))return;
   await fetch("/api/consolidate/apply",{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({proposals:p,approved_nodes:names,approved_state:stateKeys,approved_threads:tnew,approved_resolved:tres,approved_dispositions:cu})});
+    body:JSON.stringify({proposals:p,approved_nodes:names,approved_state:stateKeys,approved_threads:tnew,approved_resolved:tres,approved_dispositions:disp,approved_locations:moveNames})});
   addTurn("sys",`folded: +${names.length} node(s), +${tnew.length} thread(s), ${tres.length} resolved.`);
   await loadState();
 });

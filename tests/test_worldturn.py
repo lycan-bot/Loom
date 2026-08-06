@@ -70,6 +70,33 @@ class RunTest(unittest.TestCase):
         self.assertIn("eye each other", r["turns"][0]["beat"])
         self.assertTrue(r["pending"])
 
+    def test_non_list_model_output_does_not_crash(self):
+        # the (x or []) idiom would pass a scalar into a `for` — a non-list turns/who must fail soft
+        w = _world()
+        canon.write_node(w, "Rook", "a rogue", {"kind": "character", "wants": "gold"})
+        cfg = dict(config.DEFAULTS); cfg["depth"] = 1.0
+        orig = llm.complete
+        try:
+            for payload in ('{"turns": 5}', '{"turns": true}', '{"turns":[{"who":5,"beat":"x"}]}'):
+                llm.complete = lambda *a, **k: payload
+                self.assertIsInstance(worldturn.run(cfg, w)["turns"], list)     # no TypeError
+            llm.complete = lambda *a, **k: '{"turns":[{"who":"Rook","beat":"y"}]}'
+            self.assertEqual(worldturn.run(cfg, w)["turns"][0]["who"], [])      # string who dropped, not 'R,o,o,k'
+        finally:
+            llm.complete = orig
+
+    def test_corrupt_canon_file_does_not_crash_a_round(self):
+        w = _world()
+        canon.write_node(w, "Rook", "a rogue", {"kind": "character", "wants": "gold"})
+        (w / "corrupt.md").write_bytes(b"---\ntitle: X\n---\n\n\xff\xfe bad bytes")
+        cfg = dict(config.DEFAULTS); cfg["depth"] = 1.0
+        orig = llm.complete
+        llm.complete = lambda *a, **k: '{"turns":[]}'
+        try:
+            worldturn.run(cfg, w)                          # canon.load_all must not choke on bad bytes
+        finally:
+            llm.complete = orig
+
     def test_no_majors_is_not_pending(self):
         w = _world()
         canon.write_node(w, "Harbor", "a dock", {"kind": "place"})

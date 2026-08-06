@@ -108,9 +108,13 @@ def make_handler(cfg: dict):
                     narration = narrate.turn(text, cfg, tpath, world, spath)
                 except llm.LLMError as e:
                     return self._send(502, {"error": str(e)})
-                # the world takes its round on cadence (toggle-gated) — surfaced beside the scene
-                return self._send(200, {"narrator": narration,
-                                        "world": worldturn.maybe_round(cfg, world, spath)})
+                # the world takes its round on cadence (toggle-gated) — surfaced beside the scene.
+                # never let a world-round hiccup 500 a turn whose narration already committed
+                try:
+                    world_pulse = worldturn.maybe_round(cfg, world, spath)
+                except Exception:
+                    world_pulse = []
+                return self._send(200, {"narrator": narration, "world": world_pulse})
             if u.path == "/api/consolidate":
                 lines = transcript.read_all(tpath)
                 if not lines:
@@ -129,7 +133,8 @@ def make_handler(cfg: dict):
                       "state": set(body.get("approved_state") or []),
                       "thread": set(body.get("approved_threads") or []),
                       "resolve": set(body.get("approved_resolved") or []),
-                      "disposition": set(body.get("approved_dispositions") or [])}
+                      "disposition": set(body.get("approved_dispositions") or []),
+                      "location": set(body.get("approved_locations") or [])}
                 try:
                     written = consolidate.apply(
                         proposals, world, spath,

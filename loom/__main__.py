@@ -74,7 +74,7 @@ def cmd_consolidate(cfg, auto):
         return
     print(f"proposed: {len(proposals['nodes'])} node(s), {len(proposals['state'])} state, "
           f"{len(proposals['threads_new'])} new thread(s), {len(proposals['threads_resolved'])} resolved, "
-          f"{len(proposals['character_updates'])} disposition(s)")
+          f"{len(proposals['character_updates'])} character update(s)")
     if proposals.get("summary"):
         print(f"summary: {proposals['summary']}")
     print()
@@ -88,7 +88,7 @@ def cmd_consolidate(cfg, auto):
     written = consolidate.apply(proposals, world, spath, approve)
     print(f"\nwrote {len(written['nodes'])} node(s), {len(written['state'])} state, "
           f"{len(written['threads'])} thread(s), {len(written['resolved'])} resolved, "
-          f"{len(written['dispositions'])} disposition(s).")
+          f"{len(written['dispositions'])} disposition(s), {len(written['locations'])} move(s).")
     if cfg.get("imagine_on_consolidate"):
         cands = imagine.propose(world, spath.parent / "threads.json", cfg, n=2)
         if cands:
