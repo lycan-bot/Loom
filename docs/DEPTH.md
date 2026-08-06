@@ -27,7 +27,7 @@ don't tune eight sliders, you set a depth and the profile falls out.
 | Restraint governor | `pacing.py` | responsive, hands you what you reach for | holds; won't fudge; stakes are real |
 | Canon integrity | the diode (`narrate`↔`consolidate`) | loose — free retcon | strict — assertions must be *earned* |
 | Tension homeostat | `pacing.py` | cozy baseline | grim baseline |
-| Between-session life | `consolidate`+`imagine`+clocks | off — the world pauses when you leave | on — it moves without you; you return to consequences |
+| Between-session life | `sleep.py` | off — the world pauses when you leave | on — it moves without you; you return to a recap of what changed |
 | Mechanics | `mechanics.py` | off | on — impartial dice, real failure |
 
 Turn all of it down → the cozy companion. Turn it up → the other that might reject you.
@@ -43,9 +43,11 @@ genuinely *are* realness: the **referee** (`referee.py`, reactive — it catches
 rewritten) and a **narrator disposition** (`depth.py`, proactive — it tells the narrator to
 embody a world with its own life). The other rows above are deliberately *not* folded into the
 knob, because they turned out to be different axes: **tension** (cozy↔grim) is *tone*, not
-realness — a deeply-real world can be cozy; **mechanics** (dice) is its own opt-in; and
-**between-session life** is a future rung that `depth` will gate once it exists. Conflating
-tone or dice into the realness knob would be the mistake; keeping them orthogonal is the design.
+realness — a deeply-real world can be cozy; **mechanics** (dice) is its own opt-in. The one
+row `depth` *does* gate beyond those two is **between-session life** (`sleep.py`): a mirror
+world pauses when you leave, an other world keeps moving, and how much time passes per sleep
+scales with the dial. Conflating tone or dice into the realness knob would be the mistake;
+keeping them orthogonal — while letting the world's *aliveness* ride the dial — is the design.
 
 ---
 
@@ -82,8 +84,11 @@ failure is semantic, not lexical.
 **Mid:**
 - **A world with its own politics** — drives that point *sideways*: NPCs with knowledge and
   wants toward *each other*, a social graph whose tensions unfold whether or not you intervene.
-- **A world that lives between sessions** — run consolidation + imagination + world-clocks
-  during "sleep," propose-only and blessable, so you return to a world that *moved*.
+- **A world that lives between sessions** — BUILT (`sleep.py`): a `sleep` pass ticks the
+  world-clocks forward along their own countdowns, and any that come due surface as a
+  propose-only, blessable "while you were away" recap that greets you on return. Depth-gated
+  (a mirror world doesn't move); grounded in canon; the diode holds (nothing written unblessed).
+  Still ahead on this rung: NPC drives making *moves* during sleep (not just clocks firing).
 
 **Frontier:**
 - **Narrative that surprises even the author** — imagination + inter-NPC drives + the director

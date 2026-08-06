@@ -38,6 +38,7 @@ DEFAULTS = {
     "tension_decay":    0.7,  # how slowly tension returns to baseline after a climax
     "mechanics":        False, # opt-in dice: uncertain actions decided by an impartial d20
     "depth":            0.0,   # the realness dial: 0 = mirror (referee off) … 1 = other (strict spine)
+    "sleep_beats":      4,     # world-time that passes per 'sleep' pass, scaled by depth (0 at depth 0)
 
     # --- which campaign is live ---
     "campaign":        "example",

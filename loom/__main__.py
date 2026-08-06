@@ -11,13 +11,14 @@ Usage:
   python -m loom use <name>             switch the active campaign
   python -m loom npcs                   sync character drives into relational threads
   python -m loom imagine [--yes]        dream new threads from the canon (imagination organ)
+  python -m loom sleep [--yes]          advance the world between sessions (depth-gated)
   python -m loom mechanics on|off       toggle the optional dice layer (impartial d20)
   python -m loom depth <0.0-1.0>        realness dial — 0 mirror (agrees) … 1 other (resists)
   python -m loom web [--port N]         browser UI (play + world map), default :8100
 """
 from __future__ import annotations
 import sys
-from . import config, narrate, consolidate, seal, transcript, canon, state, llm, threads, npc, imagine, guard
+from . import config, narrate, consolidate, seal, transcript, canon, state, llm, threads, npc, imagine, guard, sleep
 
 
 def _paths(cfg):
@@ -196,6 +197,27 @@ def cmd_imagine(cfg, auto=False):
     print(f"\nblessed {len(added)} into the plan as dormant thread(s).")
 
 
+def cmd_sleep(cfg, auto=False):
+    _, world, spath = _paths(cfg)
+    thpath = spath.parent / "threads.json"
+    if float(cfg.get("depth", 0) or 0) <= 0:
+        print("the world doesn't move on its own at depth 0 — raise it ('loom depth 0.5') to let it live between sessions.")
+        return
+    print("the world turns while you're away…")
+    report = sleep.advance(cfg, world, thpath)
+    if not report.get("recap"):
+        threads.save(thpath, report["threads"])          # time passed quietly; persist the clock ticks
+        print("nothing came due; the world waits as you left it.")
+        return
+    print(f"\nwhile you were away ({report['beats']} beats of world-time passed):\n  {report['recap']}\n")
+
+    def approve(kind, recap, rep):
+        return auto or input("  fold this into the world? [y/N] ").strip().lower() in ("y", "yes")
+
+    w = sleep.apply(report, thpath, spath, approve)
+    print("folded — it will greet you when you return." if w["recap"] else "left as-is; the world un-moved.")
+
+
 def cmd_npcs(cfg):
     _, world, spath = _paths(cfg)
     ds = npc.drives(world)
@@ -242,6 +264,8 @@ def main(argv=None):
         cmd_npcs(cfg)
     elif cmd == "imagine":
         cmd_imagine(cfg, auto="--yes" in argv)
+    elif cmd == "sleep":
+        cmd_sleep(cfg, auto="--yes" in argv)
     else:
         print(__doc__)
 

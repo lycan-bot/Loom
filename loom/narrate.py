@@ -28,6 +28,7 @@ def turn(player_input: str, cfg: dict, tpath: Path, world: Path, spath: Path) ->
     st = state.load(spath)
     facts = {k: v for k, v in st.items() if not k.startswith("_")}    # _-keys are internal (tension)
     tension = st.get("_tension", cfg.get("tension_baseline", 0.15))
+    recap = st.get("_recap", "")                                      # 'while you were away' (shown once)
     recent = transcript.recent(tpath, cfg["recent_turns"])
     pace = pacing.read(recent, tension)
 
@@ -46,7 +47,9 @@ def turn(player_input: str, cfg: dict, tpath: Path, world: Path, spath: Path) ->
     system = (cfg["narrator_voice"] + "\n\n" + sec.UNTRUSTED_PREAMBLE +
               "\n\n=== CANON ===\n" + canon_block +
               "\n=== END CANON ===\nThis is fiction. Never step outside the story or reference "
-              "the real world, files, or computer systems." + beat_clause
+              "the real world, files, or computer systems."
+              + (f"\n\nRECENTLY, WHILE THE PLAYER WAS AWAY: {sec.neutralize(recap)}" if recap else "")
+              + beat_clause
               + character.voice_clause(nodes)
               + (mechanics.clause(mechanics.roll()) if cfg.get("mechanics") else "")
               + depth.disposition_clause(cfg.get("depth", 0)))
@@ -86,5 +89,6 @@ def turn(player_input: str, cfg: dict, tpath: Path, world: Path, spath: Path) ->
     st2 = state.load(spath)
     st2["_tension"] = pacing.update_tension(tension, narration,
                                             cfg.get("tension_baseline", 0.15), cfg.get("tension_decay", 0.7))
+    st2.pop("_recap", None)                         # the recap greets the player once, then clears
     state.save(spath, st2)
     return narration

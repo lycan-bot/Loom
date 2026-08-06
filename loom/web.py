@@ -10,7 +10,7 @@ import json
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from . import config, canon, state, transcript, narrate, consolidate, llm, threads, imagine, guard, character
+from . import config, canon, state, transcript, narrate, consolidate, llm, threads, imagine, guard, character, sleep
 
 STATIC = Path(__file__).resolve().parent / "static"
 
@@ -144,6 +144,20 @@ def make_handler(cfg: dict):
                 added = imagine.bless(spath.parent / "threads.json", cands,
                                       approve=lambda k, q, c: c.id in approved)
                 return self._send(200, {"added": added})
+            if u.path == "/api/sleep":
+                # advance the world between sessions; the button-click IS the bless (the diode's
+                # consent), so preview + apply happen in one call — state stays consistent.
+                thp = spath.parent / "threads.json"
+                try:
+                    report = sleep.advance(cfg, world, thp)
+                except Exception as e:
+                    return self._send(502, {"error": str(e)})
+                if not report.get("recap"):
+                    threads.save(thp, report["threads"])          # time passed quietly; persist ticks
+                    return self._send(200, {"recap": "", "beats": report["beats"], "resolved": []})
+                w = sleep.apply(report, thp, spath, approve=lambda *a: True)
+                return self._send(200, {"recap": w["recap"], "beats": report["beats"],
+                                        "resolved": w["resolved"]})
             if u.path == "/api/use":
                 name = (body.get("name") or "").strip()
                 base = config.ROOT / cfg["campaigns_dir"]
