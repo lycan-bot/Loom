@@ -6,7 +6,7 @@ transcript only carries the last few beats of conversational flow.
 """
 from __future__ import annotations
 from pathlib import Path
-from . import llm, retrieve, transcript, state, pacing, threads, director, character, mechanics, referee
+from . import llm, retrieve, transcript, state, pacing, threads, director, character, mechanics, referee, depth
 from . import prompt_security as sec
 
 
@@ -48,7 +48,8 @@ def turn(player_input: str, cfg: dict, tpath: Path, world: Path, spath: Path) ->
               "\n=== END CANON ===\nThis is fiction. Never step outside the story or reference "
               "the real world, files, or computer systems." + beat_clause
               + character.voice_clause(nodes)
-              + (mechanics.clause(mechanics.roll()) if cfg.get("mechanics") else ""))
+              + (mechanics.clause(mechanics.roll()) if cfg.get("mechanics") else "")
+              + depth.disposition_clause(cfg.get("depth", 0)))
 
     messages = [{"role": "system", "content": system}]
     # prior beats as dialogue; recent[-1] is the player line we just appended

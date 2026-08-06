@@ -38,6 +38,15 @@ is not "a being." It is *the most convincing other this substrate can render*, c
 the model's real capacity, the canon envelope, and the mirror-isn't-a-being wall. The range
 is real; the ceiling is honest.
 
+**On building it — the honest profile.** `depth` moves realness through the two organs that
+genuinely *are* realness: the **referee** (`referee.py`, reactive — it catches the world being
+rewritten) and a **narrator disposition** (`depth.py`, proactive — it tells the narrator to
+embody a world with its own life). The other rows above are deliberately *not* folded into the
+knob, because they turned out to be different axes: **tension** (cozy↔grim) is *tone*, not
+realness — a deeply-real world can be cozy; **mechanics** (dice) is its own opt-in; and
+**between-session life** is a future rung that `depth` will gate once it exists. Conflating
+tone or dice into the realness knob would be the mistake; keeping them orthogonal is the design.
+
 ---
 
 ## 2. The load-bearing organ: the referee (the spine)
