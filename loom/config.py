@@ -39,6 +39,7 @@ DEFAULTS = {
     "mechanics":        False, # opt-in dice: uncertain actions decided by an impartial d20
     "depth":            0.0,   # the realness dial: 0 = mirror (referee off) … 1 = other (strict spine)
     "sleep_beats":      4,     # world-time that passes per 'sleep' pass, scaled by depth (0 at depth 0)
+    "sleep_moves":      2,     # how many characters take a step toward their want per sleep (depth-scaled)
 
     # --- which campaign is live ---
     "campaign":        "example",

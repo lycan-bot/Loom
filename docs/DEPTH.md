@@ -85,10 +85,12 @@ failure is semantic, not lexical.
 - **A world with its own politics** — drives that point *sideways*: NPCs with knowledge and
   wants toward *each other*, a social graph whose tensions unfold whether or not you intervene.
 - **A world that lives between sessions** — BUILT (`sleep.py`): a `sleep` pass ticks the
-  world-clocks forward along their own countdowns, and any that come due surface as a
-  propose-only, blessable "while you were away" recap that greets you on return. Depth-gated
-  (a mirror world doesn't move); grounded in canon; the diode holds (nothing written unblessed).
-  Still ahead on this rung: NPC drives making *moves* during sleep (not just clocks firing).
+  world-clocks forward along their own countdowns AND lets the world's *people* move — a
+  bounded, depth-scaled set of characters with a `wants` each take a small in-character step
+  toward it. All of it surfaces as a propose-only, blessable "while you were away" recap that
+  greets you on return. Depth-gated (a mirror world doesn't move); grounded in canon; the diode
+  holds (nothing written unblessed, and an NPC's sleep-move never spends their relational-thread
+  payoff — that stays for live play). Still ahead: inter-NPC politics (drives pointing *sideways*).
 
 **Frontier:**
 - **Narrative that surprises even the author** — imagination + inter-NPC drives + the director

@@ -162,8 +162,8 @@ def make_handler(cfg: dict):
                     w = sleep.apply(report, thp, spath, approve=lambda *a: True)
                     return self._send(200, {"recap": w["recap"], "beats": report["beats"],
                                             "resolved": w["resolved"]})
-                if report.get("due"):                             # due but recap failed → roll back, don't persist
-                    return self._send(502, {"error": "an event came due but the recap couldn't be written; try again"})
+                if report.get("pending"):                         # something happened but recap failed → roll back
+                    return self._send(502, {"error": "the world stirred but the recap couldn't be written; try again"})
                 threads.save(thp, report["threads"])              # nothing due; time passed quietly, persist ticks
                 return self._send(200, {"recap": "", "beats": report["beats"], "resolved": []})
             if u.path == "/api/use":

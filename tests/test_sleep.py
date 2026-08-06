@@ -65,6 +65,53 @@ class AdvanceTest(unittest.TestCase):
         self.assertEqual(r["recap"], "")                    # fail-soft: no recap, no crash
 
 
+class NpcMovesTest(unittest.TestCase):
+    def test_characters_move_and_feed_the_recap(self):
+        camp = _camp()
+        canon.write_node(camp / "world", "Dockhand", "a weary dockhand",
+                         {"kind": "character", "wants": "to leave the harbor", "bound": "a debt he can't pay"})
+        cfg = dict(config.DEFAULTS); cfg["depth"] = 1.0; cfg["sleep_moves"] = 2
+        cap = {}
+        orig = llm.complete
+        llm.complete = lambda prompt, c, **k: (cap.__setitem__("p", prompt),
+                                               '{"recap":"The dockhand asked after berths on the next ship out.","resolved":[]}')[1]
+        try:
+            r = sleep.advance(cfg, camp / "world", camp / "threads.json")
+        finally:
+            llm.complete = orig
+        self.assertIn("Dockhand", r["moves"])            # the character acted
+        self.assertTrue(r["pending"])
+        self.assertIn("Dockhand", cap["p"])              # the move fed the recap prompt
+        self.assertIn("leave the harbor", cap["p"])      # grounded in the stated want
+        self.assertIn("berths", r["recap"])
+
+    def test_no_characters_no_clocks_is_quiet(self):
+        camp = _camp()
+        canon.write_node(camp / "world", "Harbor", "a cold harbor", {"kind": "place"})
+        cfg = dict(config.DEFAULTS); cfg["depth"] = 1.0
+        r = sleep.advance(cfg, camp / "world", camp / "threads.json")
+        self.assertFalse(r["pending"])                   # a place has no want; nothing moves
+        self.assertEqual(r["recap"], "")
+
+    def test_move_does_not_spend_the_relational_payoff(self):
+        # a character stepping toward their want during sleep must NOT resolve their relational
+        # thread — that dramatic payoff is reserved for live play (the diode, in the NPC context)
+        camp = _camp()
+        canon.write_node(camp / "world", "Dockhand", "a weary dockhand", {"kind": "character", "wants": "to leave"})
+        threads.save(camp / "threads.json", [Thread("dockhand-leave", "Will the Dockhand act on their wish to leave?",
+                                                    kind="question", status="ready", readiness=0.8)])
+        cfg = dict(config.DEFAULTS); cfg["depth"] = 1.0
+        orig = llm.complete
+        llm.complete = lambda *a, **k: '{"recap":"The dockhand made a quiet move.","resolved":["dockhand-leave"]}'
+        try:
+            r = sleep.advance(cfg, camp / "world", camp / "threads.json")
+            sleep.apply(r, camp / "threads.json", camp / "state.json", approve=lambda *a: True)
+        finally:
+            llm.complete = orig
+        saved = {t.id: t.status for t in threads.load(camp / "threads.json")}
+        self.assertEqual(saved["dockhand-leave"], "ready")   # untouched — payoff stays for play
+
+
 class ApplyTest(unittest.TestCase):
     def test_bless_resolves_clock_and_stashes_recap(self):
         camp = _camp()

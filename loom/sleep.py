@@ -11,12 +11,12 @@ time passes the deeper the realness).
 from __future__ import annotations
 import json
 import re
-from . import threads, canon, llm, state
+from . import threads, canon, llm, state, npc
 
 _JSON_RE = re.compile(r"\{[\s\S]*\}")
 
 _RECAP_PROMPT = """You are the chronicler of a story world. The player has been away. In their
-absence, these pending things have come due:
+absence, the world moved on its own:
 
 %s
 
@@ -24,9 +24,10 @@ CANON (the world's established truth):
 %s
 
 Write a SHORT "meanwhile, while you were away" recap (2-4 sentences) of what happened — grounded
-strictly in the pending events and the canon above, consistent with the world, understated. The
-player was ABSENT: do not involve them. Respond with ONE json object:
-{"recap": "the prose recap", "resolved": ["<id of any thread now fully spent, if any>"]}
+strictly in the items above and the canon, consistent with the world, understated. Characters act
+IN CHARACTER, taking small concrete steps toward what they want; the world does NOT rearrange
+itself around the absent player, and nothing hands them an advantage. Respond with ONE json object:
+{"recap": "the prose recap", "resolved": ["<id of a thread the events fully spent, if any>"]}
 """
 
 
@@ -42,14 +43,27 @@ def advance(cfg, world, threads_path):
                 t.clock -= 1
                 if t.clock <= 0:
                     t.status = "ready"
-    # only CLOCKS move the world during sleep — autonomous, scheduled events. Question-threads
-    # ripen by player-proximity and are player-facing beats; firing them here would pre-empt a
-    # payoff meant for live play. (NPC drives making moves during sleep is a later rung.)
+    # only CLOCKS resolve during sleep — autonomous scheduled events. Question-threads ripen by
+    # player-proximity and are player-facing beats; firing them here would pre-empt a live-play payoff.
     due = [t for t in th if t.status == "ready" and t.kind == "clock"]
-    report = {"beats": beats, "due": [t.id for t in due], "recap": "", "resolved": [], "threads": th}
-    if not due:
+
+    # the world's PEOPLE move too: a bounded, depth-scaled set of characters with a want each take a
+    # small in-character step toward it while the player is away (grounded, propose-only, and — unlike
+    # clocks — they do NOT resolve their relational thread; that dramatic payoff stays for live play).
+    moves = []
+    if depth > 0:
+        n = max(1, round(depth * float(cfg.get("sleep_moves", 2))))
+        ds = npc.drives(world)
+        ds.sort(key=lambda d: not d[1].tension)          # tensioned drives first (more dramatic); stable
+        moves = [(name, m) for name, m, _e in ds[:n]]
+
+    report = {"beats": beats, "due": [t.id for t in due], "moves": [name for name, _m in moves],
+              "recap": "", "resolved": [], "threads": th, "pending": bool(due or moves)}
+    if not report["pending"]:
         return report
-    due_text = "\n".join(f"- {t.question}" for t in due)
+    items = [f"- {t.question}" for t in due]
+    items += [f"- {name}, who {m.because}, takes a small step toward it" for name, m in moves]
+    items_text = "\n".join(items)
     canon_text = "\n".join(f"{n['name']}: {n['body'][:150]}" for n in canon.load_all(world))[:1500]
     ccfg = dict(cfg)
     if cfg.get("consolidate_llm_url"):
@@ -59,7 +73,7 @@ def advance(cfg, world, threads_path):
     if cfg.get("consolidate_api_key"):
         ccfg["api_key"] = cfg["consolidate_api_key"]
     try:
-        raw = llm.complete(_RECAP_PROMPT % (due_text, canon_text), ccfg, max_tokens=300,
+        raw = llm.complete(_RECAP_PROMPT % (items_text, canon_text), ccfg, max_tokens=300,
                            temperature=0.4, response_format={"type": "json_object"})
         m = _JSON_RE.search(raw)
         data = json.loads(m.group(0)) if m else {}

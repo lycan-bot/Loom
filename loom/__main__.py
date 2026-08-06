@@ -216,10 +216,10 @@ def cmd_sleep(cfg, auto=False):
 
         w = sleep.apply(report, thpath, spath, approve)
         print("folded — it will greet you when you return." if w["recap"] else "left as-is; the world un-moved.")
-    elif report.get("due"):
-        # a clock came due but the recap couldn't be written — don't persist the half-fired state;
-        # leaving threads.json untouched lets the event re-fire cleanly on the next sleep
-        print("an event came due but the recap couldn't be written (model unreachable?) — try again in a moment.")
+    elif report.get("pending"):
+        # something happened (a clock fired or a character moved) but the recap couldn't be written —
+        # don't persist the half-fired state; leaving threads.json untouched lets it re-fire next sleep
+        print("the world stirred but the recap couldn't be written (model unreachable?) — try again in a moment.")
     else:
         threads.save(thpath, report["threads"])          # nothing due; time passed quietly, persist the ticks
         print("nothing came due; the world waits as you left it.")
