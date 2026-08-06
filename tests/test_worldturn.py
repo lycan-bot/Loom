@@ -90,5 +90,36 @@ class RunTest(unittest.TestCase):
         self.assertTrue(r["pending"])                                          # actors existed → retryable
 
 
+class MaybeRoundTest(unittest.TestCase):
+    def _drived(self):
+        w = _world()
+        canon.write_node(w, "Tavern", "a tavern", {"kind": "place"})
+        canon.write_node(w, "Rook", "a rogue", {"kind": "character", "wants": "the ledger", "location": "Tavern"})
+        return w
+
+    def test_toggle_off_never_runs(self):
+        w = self._drived()
+        cfg = dict(config.DEFAULTS); cfg["world_rounds"] = False; cfg["depth"] = 1.0
+        self.assertEqual(worldturn.maybe_round(cfg, w, w.parent / "state.json"), [])
+
+    def test_depth_zero_never_runs(self):
+        w = self._drived()
+        cfg = dict(config.DEFAULTS); cfg["world_rounds"] = True; cfg["depth"] = 0.0
+        self.assertEqual(worldturn.maybe_round(cfg, w, w.parent / "state.json"), [])
+
+    def test_fires_only_on_cadence(self):
+        w = self._drived()
+        cfg = dict(config.DEFAULTS); cfg["world_rounds"] = True; cfg["depth"] = 1.0; cfg["world_cadence"] = 2
+        sp = w.parent / "state.json"
+        orig = llm.complete
+        llm.complete = lambda *a, **k: '{"turns":[{"where":"Tavern","who":["Rook"],"beat":"He pockets a key."}]}'
+        try:
+            self.assertEqual(worldturn.maybe_round(cfg, w, sp), [])       # turn 1 — not due
+            r2 = worldturn.maybe_round(cfg, w, sp)                        # turn 2 — due
+        finally:
+            llm.complete = orig
+        self.assertTrue(r2 and "pockets a key" in r2[0]["beat"])
+
+
 if __name__ == "__main__":
     unittest.main()

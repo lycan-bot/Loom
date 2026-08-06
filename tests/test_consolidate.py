@@ -95,6 +95,18 @@ class ApplyThreadsTest(unittest.TestCase):
         self.assertEqual(canon.read_node(camp / "world", "Mara")["frontmatter"].get("disposition"),
                          "warming to the stranger")
 
+    def test_updates_character_location(self):
+        # NPCs relocate over play so the world-round groups shift — a location-only update applies
+        # even when disposition is unchanged, and it preserves the rest of the frontmatter
+        camp = _camp()
+        canon.write_node(camp / "world", "Rook", "A rogue.",
+                         {"kind": "character", "wants": "the ledger", "location": "The Docks"})
+        consolidate.apply({"character_updates": [{"name": "Rook", "location": "The Salt & Anchor"}]},
+                          camp / "world", camp / "state.json", approve=lambda *a: True)
+        fm = canon.read_node(camp / "world", "Rook")["frontmatter"]
+        self.assertEqual(fm.get("location"), "The Salt & Anchor")     # moved
+        self.assertEqual(fm.get("wants"), "the ledger")               # drive preserved
+
     def test_node_fields_written_and_merged(self):
         camp = _camp()
         consolidate.apply({"nodes": [{"name": "Mara", "body": "A fisher.", "kind": "character",

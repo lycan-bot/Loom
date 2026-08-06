@@ -47,6 +47,13 @@ def cmd_play(cfg):
             continue
         try:
             print("\nnarrator ›", narrate.turn(line, cfg, tpath, world, spath), "\n")
+            pulse = worldturn.maybe_round(cfg, world, spath)
+            if pulse:
+                print("— meanwhile, elsewhere —")
+                for t in pulse:
+                    who = ", ".join(t.get("who") or []) or "someone"
+                    print(f"  [{t.get('where') or '…'}] {who}: {t['beat']}")
+                print()
         except llm.LLMError as e:
             print(f"\n[!] {e}\n")
     print("session ended. run  python -m loom consolidate  to fold it into canon.")

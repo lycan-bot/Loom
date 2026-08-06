@@ -40,7 +40,8 @@ DEFAULTS = {
     "depth":            0.0,   # the realness dial: 0 = mirror (referee off) … 1 = other (strict spine)
     "sleep_beats":      4,     # world-time that passes per 'sleep' pass, scaled by depth (0 at depth 0)
     "sleep_moves":      2,     # how many characters take a step toward their want per sleep (depth-scaled)
-    "world_rounds":     False, # SHOW the world round each turn (the toggle); the round runs regardless
+    "world_rounds":     False, # the toggle: run + SHOW a world round during play (off → sleep carries it)
+    "world_cadence":    3,      # when the toggle is on, the world takes a round every N player turns
 
     # --- which campaign is live ---
     "campaign":        "example",

@@ -210,6 +210,14 @@ function addTurn(role,text){
   $("log").appendChild(d);$("log").scrollTop=$("log").scrollHeight;
 }
 
+function addWorld(turns){
+  const d=document.createElement("div");d.className="turn meanwhile";
+  d.style.cssText="font-size:13px;color:#9a94a8;border-left:2px solid #443c55;padding:6px 12px;margin:6px 0";
+  d.innerHTML="<div style='font-variant:small-caps;letter-spacing:.5px;color:#7a7488;margin-bottom:4px'>meanwhile, elsewhere</div>"
+    +turns.map(t=>`<div style='margin:2px 0'><b>${esc((t.who||[]).join(", ")||"someone")}</b>${t.where?` <span style='opacity:.7'>@ ${esc(t.where)}</span>`:""} — ${esc(t.beat)}</div>`).join("");
+  $("log").appendChild(d);$("log").scrollTop=$("log").scrollHeight;
+}
+
 async function loadWorlds(){
   const w=await (await fetch("/api/worlds")).json();
   $("worldsel").innerHTML=(w.campaigns||[]).map(n=>`<option${n===w.active?" selected":""}>${esc(n)}</option>`).join("")+`<option value="__new__">＋ new world…</option>`;
@@ -236,7 +244,7 @@ $("f").addEventListener("submit",async ev=>{
   try{
     const r=await fetch("/api/turn",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({input:t})});
     const j=await r.json();think.remove();
-    if(r.ok){addTurn("narrator",j.narrator);$("mdot").className="dot ok";await loadGraph();}
+    if(r.ok){addTurn("narrator",j.narrator);if(j.world&&j.world.length)addWorld(j.world);$("mdot").className="dot ok";await loadGraph();}
     else{addTurn("sys","⚠ "+(j.error||"the narrator is silent")+"  (is ./serve.sh running?)");$("mdot").className="dot bad";}
   }catch(e){think.remove();addTurn("sys","⚠ "+e);$("mdot").className="dot bad";}
   $("send").disabled=false;$("input").focus();

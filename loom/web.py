@@ -10,7 +10,7 @@ import json
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from . import config, canon, state, transcript, narrate, consolidate, llm, threads, imagine, guard, character, sleep
+from . import config, canon, state, transcript, narrate, consolidate, llm, threads, imagine, guard, character, sleep, worldturn
 
 STATIC = Path(__file__).resolve().parent / "static"
 
@@ -105,9 +105,12 @@ def make_handler(cfg: dict):
                 if not text:
                     return self._send(400, {"error": "empty"})
                 try:
-                    return self._send(200, {"narrator": narrate.turn(text, cfg, tpath, world, spath)})
+                    narration = narrate.turn(text, cfg, tpath, world, spath)
                 except llm.LLMError as e:
                     return self._send(502, {"error": str(e)})
+                # the world takes its round on cadence (toggle-gated) — surfaced beside the scene
+                return self._send(200, {"narrator": narration,
+                                        "world": worldturn.maybe_round(cfg, world, spath)})
             if u.path == "/api/consolidate":
                 lines = transcript.read_all(tpath)
                 if not lines:

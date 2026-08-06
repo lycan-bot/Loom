@@ -16,7 +16,7 @@ to be MUTABLE — an NPC's own turn can carry them elsewhere, so groups form and
 from __future__ import annotations
 import json
 import re
-from . import canon, npc, llm
+from . import canon, npc, llm, state
 
 _JSON_RE = re.compile(r"\{[\s\S]*\}")
 _MAX_TURNS = 4          # groups that act per round — the world moves without flooding the prompt
@@ -116,3 +116,20 @@ def run(cfg, world) -> dict:
               "beat": _s(t.get("beat")).strip()}
              for t in (data.get("turns") or []) if isinstance(t, dict) and _s(t.get("beat")).strip()]
     return {"turns": turns, "pending": True}
+
+
+def maybe_round(cfg, world, state_path) -> list:
+    """Run a world round if the SHOW toggle is on and the cadence is due — the live-loop hook.
+    Advances a per-campaign turn counter in state; returns the turns (possibly []) for the caller
+    to display. When the toggle is off, the world's between-turn life is carried by sleep instead,
+    so this never fires (and never spends a model call). Depth-gated like everything else."""
+    if not cfg.get("world_rounds") or float(cfg.get("depth", 0) or 0) <= 0:
+        return []
+    st = state.load(state_path)
+    n = int(st.get("_wturn", 0) or 0) + 1
+    st["_wturn"] = n
+    state.save(state_path, st)
+    cadence = max(1, int(cfg.get("world_cadence", 3) or 3))
+    if n % cadence != 0:                                  # the world takes a round every `cadence` turns
+        return []
+    return run(cfg, world)["turns"]

@@ -56,9 +56,10 @@ def _normalize(proposals: dict) -> dict:
 
     updates = []
     for c in _dicts(proposals.get("character_updates")):
-        name, disp = _named(c), _s(c.get("disposition")).strip()
-        if name and disp:
-            updates.append({"name": name, "disposition": disp})
+        name = _named(c)
+        disp, loc = _s(c.get("disposition")).strip(), _s(c.get("location")).strip()
+        if name and (disp or loc):
+            updates.append({"name": name, "disposition": disp, "location": loc})
 
     resolved_raw = proposals.get("threads_resolved")
     return {
@@ -111,7 +112,7 @@ Respond with ONE json object:
   "state":   {"key": "value"},
   "threads_new":      [{"question": "a NEW open dramatic question this session RAISED", "entities": ["canon names it involves"], "seed": "a subtle detail to foreshadow it later", "payoff": "what answering it might look like"}],
   "threads_resolved": ["<id of an open thread the session ANSWERED, if any>"],
-  "character_updates": [{"name": "an existing character", "disposition": "how they now feel toward the player, ONLY if it clearly shifted this session"}],
+  "character_updates": [{"name": "an existing character", "disposition": "how they now feel toward the player, ONLY if it clearly shifted this session", "location": "the place they are now, ONLY if they moved this session"}],
   "summary": "one sentence on what changed"
 }
 Only open a thread for a genuine NEW dramatic question the session actually raised; only resolve \
@@ -222,13 +223,16 @@ def apply(proposals: dict, world: Path, state_path: Path, approve) -> dict:
 
     # a character's disposition toward the player, updated in place (relationship growth)
     for cu in p["character_updates"]:
-        name, disp = cu["name"], cu["disposition"]
+        name = cu["name"]
         node = canon.read_node(world, name)
         if node is None or node["frontmatter"].get("kind") != "character":
             continue
-        if approve("disposition", name, disp):
+        if approve("disposition", name, cu):
             fm = dict(node["frontmatter"])
-            fm["disposition"] = disp
+            if cu["disposition"]:
+                fm["disposition"] = cu["disposition"]
+            if cu["location"]:                            # NPCs relocate over play → groups shift
+                fm["location"] = cu["location"]
             canon.write_node(world, name, node["body"], fm)
             written["dispositions"].append(name)
     return written
