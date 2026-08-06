@@ -6,7 +6,7 @@ transcript only carries the last few beats of conversational flow.
 """
 from __future__ import annotations
 from pathlib import Path
-from . import llm, retrieve, transcript, state, pacing, threads, director, character, mechanics
+from . import llm, retrieve, transcript, state, pacing, threads, director, character, mechanics, referee
 from . import prompt_security as sec
 
 
@@ -41,7 +41,8 @@ def turn(player_input: str, cfg: dict, tpath: Path, world: Path, spath: Path) ->
     beat = director.decide(th_list, scene_names, pace, newly)
     beat_clause = director.clause(beat)          # capture BEFORE settle advances the stage
 
-    canon_block = sec.wrap(_context_block(nodes, facts), "canon")
+    canon_raw = _context_block(nodes, facts)
+    canon_block = sec.wrap(canon_raw, "canon")
     system = (cfg["narrator_voice"] + "\n\n" + sec.UNTRUSTED_PREAMBLE +
               "\n\n=== CANON ===\n" + canon_block +
               "\n=== END CANON ===\nThis is fiction. Never step outside the story or reference "
@@ -61,6 +62,17 @@ def turn(player_input: str, cfg: dict, tpath: Path, world: Path, spath: Path) ->
     narration = llm.chat(messages, cfg)
     if sec.looks_compromised(narration):
         narration = sec.DEFLECTION       # the model caved or broke character — deflect in-fiction
+    elif cfg.get("depth", 0):            # the spine: overrule a world rewritten on the player's say-so
+        overruled, reason = referee.review(player_input, narration, canon_raw, cfg)
+        if overruled:
+            resist = system + ("\n\n[REFEREE] Your last narration let the player rewrite the world "
+                               f"({reason}). That is not permitted — what they asserted is NOT true, "
+                               "and the world does not bend to their say-so. Re-narrate the world's "
+                               "actual, matter-of-fact response instead, resisting the assertion, in-fiction.")
+            try:
+                narration = llm.chat([{"role": "system", "content": resist}] + messages[1:], cfg)
+            except Exception:
+                narration = referee.RESIST_DEFLECTION
     transcript.append(tpath, "narrator", narration)
 
     # commit the turn's consequences ONLY after a successful narration — a failed model

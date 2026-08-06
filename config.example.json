@@ -15,6 +15,7 @@
   "retrieve_k": 6,
   "recent_turns": 8,
   "mechanics": false,
+  "depth": 0.0,
 
   "campaign": "example"
 }

@@ -12,6 +12,7 @@ Usage:
   python -m loom npcs                   sync character drives into relational threads
   python -m loom imagine [--yes]        dream new threads from the canon (imagination organ)
   python -m loom mechanics on|off       toggle the optional dice layer (impartial d20)
+  python -m loom depth <0.0-1.0>        realness dial — 0 mirror (agrees) … 1 other (resists)
   python -m loom web [--port N]         browser UI (play + world map), default :8100
 """
 from __future__ import annotations
@@ -138,6 +139,7 @@ def cmd_status(cfg):
     print(f"campaign  : {cfg['campaign']}")
     print(f"model     : {cfg['llm_url']}  (embeddings: {cfg['use_embeddings']})")
     print(f"mechanics : {'on' if cfg.get('mechanics') else 'off'}")
+    print(f"depth     : {cfg.get('depth', 0.0)}  (0 mirror … 1 other)")
     print(f"transcript: {len(transcript.read_all(tpath))} lines")
     print(f"canon     : {len(canon.load_all(world))} nodes")
     print(f"state     : {len([k for k in state.load(spath) if not k.startswith('_')])} facts")
@@ -148,6 +150,17 @@ def cmd_mechanics(cfg, arg):
     on = arg == "on"
     config.save({"mechanics": on})
     print(f"mechanics {'ON — an impartial d20 now decides uncertain actions' if on else 'off'}.")
+
+
+def cmd_depth(cfg, arg):
+    try:
+        v = max(0.0, min(1.0, float(arg)))
+    except ValueError:
+        print("depth must be a number 0.0–1.0 (0 = mirror / agrees, 1 = other / resists).")
+        return
+    config.save({"depth": v})
+    label = "mirror — the world agrees" if v == 0 else "other — the world resists" if v >= 0.8 else "in between"
+    print(f"realness depth set to {v} ({label}).")
 
 
 def cmd_check(cfg):
@@ -211,6 +224,8 @@ def main(argv=None):
         cmd_check(cfg)
     elif cmd == "mechanics" and len(argv) > 1:
         cmd_mechanics(cfg, argv[1])
+    elif cmd == "depth" and len(argv) > 1:
+        cmd_depth(cfg, argv[1])
     elif cmd == "new" and len(argv) > 1:
         cmd_new(cfg, argv[1])
     elif cmd == "worlds":
