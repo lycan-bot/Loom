@@ -75,7 +75,13 @@ def read(transcript_lines, tension: float, stall_window: int = 2,
          drive_floor: float = 0.3, tension_ceiling: float = 0.45) -> Pacing:
     """Given the current dramatic `tension` (from the homeostat), decide HOLD vs OFFER
     from the player's recent agency. OFFER only on a genuine stall AND low tension."""
-    players = [e["text"] for e in transcript_lines if e.get("role") == "player"]
+    # a player line immediately followed by ANOTHER player line is an orphan — the previous turn's
+    # model call failed, leaving it with no narration. Drop it so a dead retry can't inflate the
+    # stall window into a phantom "two passive beats" and fire an OFFER early. The current input
+    # (last line, no follower yet) is always kept.
+    players = [e["text"] for i, e in enumerate(transcript_lines)
+               if e.get("role") == "player"
+               and not (i + 1 < len(transcript_lines) and transcript_lines[i + 1].get("role") == "player")]
     drives = [_drive(p) for p in players[-stall_window:]]
     drive = drives[-1] if drives else 1.0
 

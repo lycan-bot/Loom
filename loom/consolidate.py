@@ -13,6 +13,12 @@ from . import llm, canon, state, threads
 _JSON_RE = re.compile(r"\{[\s\S]*\}")
 
 
+def _dicts(x):
+    """Model output is grammar-valid JSON but NOT shape-checked; keep only the dict elements
+    of a list so a botched container type is skipped, never crashed on."""
+    return [e for e in x if isinstance(e, dict)] if isinstance(x, list) else []
+
+
 def _loads_lenient(text: str):
     """json.loads, but if the object was truncated (e.g. hit max_tokens), repair it by
     closing any open string and balancing braces/brackets. The grammar guarantees valid
@@ -101,10 +107,11 @@ def apply(proposals: dict, world: Path, state_path: Path, approve) -> dict:
     is the diode — the operator's hand between improv and canon.
     """
     written: dict[str, list] = {"nodes": [], "state": [], "threads": [], "resolved": [], "dispositions": []}
-    for node in proposals.get("nodes", []):
+    for node in _dicts(proposals.get("nodes")):
         name = node.get("name")
         body = (node.get("body") or "").strip()
-        fields = {k: v for k, v in (node.get("fields") or {}).items() if v}   # card fields (role/met/…)
+        raw_fields = node.get("fields")
+        fields = {k: v for k, v in raw_fields.items() if v} if isinstance(raw_fields, dict) else {}  # card fields
         if not name or not approve("node", name, node):
             continue
         existing = canon.read_node(world, name)
@@ -126,7 +133,8 @@ def apply(proposals: dict, world: Path, state_path: Path, approve) -> dict:
             written["nodes"].append(name)
     st = state.load(state_path)
     changed = False
-    for key, val in (proposals.get("state") or {}).items():
+    state_in = proposals.get("state") if isinstance(proposals.get("state"), dict) else {}
+    for key, val in state_in.items():
         if approve("state", key, val):
             st[key] = val
             written["state"].append(key)
@@ -139,22 +147,27 @@ def apply(proposals: dict, world: Path, state_path: Path, approve) -> dict:
     th = threads.load(thpath)
     by_id = {t.id: t for t in th}
     th_changed = False
-    for nt in proposals.get("threads_new", []):
+    for nt in _dicts(proposals.get("threads_new")):
         q = (nt.get("question") or "").strip()
         if not q:
             continue
         tid = threads.make_id(q)
         if tid in by_id:                                 # dedup against existing
             continue
+        raw_ents = nt.get("entities")                    # coerce to a clean list of names
+        ents = ([e for e in raw_ents if isinstance(e, str)] if isinstance(raw_ents, list)
+                else [raw_ents] if isinstance(raw_ents, str) and raw_ents else [])
         if approve("thread", q, nt):
             new = threads.Thread(id=tid, question=q, kind="question", status="dormant",
-                                 entities=nt.get("entities") or [], seed=nt.get("seed") or "",
+                                 entities=ents, seed=nt.get("seed") or "",
                                  payoff=nt.get("payoff") or "")
             th.append(new)
             by_id[tid] = new
             written["threads"].append(q)
             th_changed = True
-    for rid in proposals.get("threads_resolved", []):
+    for rid in proposals.get("threads_resolved") or []:
+        if not isinstance(rid, str):
+            continue
         t = by_id.get(rid)
         if t and t.status != "resolved" and approve("resolve", rid, t.question):
             t.status = "resolved"
@@ -164,7 +177,7 @@ def apply(proposals: dict, world: Path, state_path: Path, approve) -> dict:
         threads.save(thpath, th)
 
     # a character's disposition toward the player, updated in place (relationship growth)
-    for cu in proposals.get("character_updates", []):
+    for cu in _dicts(proposals.get("character_updates")):
         name = cu.get("name")
         disp = (cu.get("disposition") or "").strip()
         if not name or not disp:

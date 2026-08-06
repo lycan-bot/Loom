@@ -2,8 +2,11 @@
 the real system. Everything reads/writes only inside the campaign directory, and
 canon/state are scanned for leaks of real-world paths or the source project.
 
-This is deliberately simple: separation is enforced structurally (every path goes
-through guard_path), and this scan is the belt-and-suspenders audit on top.
+Containment is enforced by three things: campaign NAMES pass config.valid_campaign_name +
+campaign_dir (they can't escape the campaigns dir), node names are reduced to safe slugs by
+canon.slug, and canon.write_node runs every node path through guard_path as a structural belt.
+This scan is the belt-and-suspenders audit on top — it catches a real-world path or
+source-project marker that bled into fiction.
 """
 from __future__ import annotations
 import re
@@ -12,8 +15,8 @@ from . import canon, state, threads
 
 # markers that must never appear in fiction — signs the log bled into the real world
 _LEAK_PATTERNS = [
-    re.compile(r"/home/[^\s'\"]+"),
-    re.compile(r"[A-Za-z]:\\[^\s'\"]+"),
+    re.compile(r"/(?:home|etc|root|var|usr|opt|boot|proc|sys|mnt|run|srv)/[^\s'\"]+"),
+    re.compile(r"[A-Za-z]:[\\/][^\s'\"]+"),          # C:\path or C:/path (both slash styles)
     re.compile(r"\bprimarch\b", re.I),
     re.compile(r"\bSIGILUS_CONFIG_DIR\b"),
     re.compile(r"\binviolable_manifest\b", re.I),

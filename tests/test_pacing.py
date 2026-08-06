@@ -15,20 +15,30 @@ class PacingTest(unittest.TestCase):
 
     def test_calm_but_engaged_is_not_boredom(self):
         log = T(("player", "I sit and sketch the moored boats, noting each name."),
+                ("narrator", "The boats rock gently at their moorings."),
                 ("player", "I add the lighthouse to the corner of the page, dark and thin."))
         self.assertEqual(pacing.read(log, 0.1).directive, "hold")
 
     def test_two_passive_beats_low_tension_offers(self):
-        self.assertEqual(pacing.read(T(("player", "hmm"), ("player", "look around")), 0.1).directive, "offer")
+        log = T(("player", "hmm"), ("narrator", "The harbor is quiet."), ("player", "look around"))
+        self.assertEqual(pacing.read(log, 0.1).directive, "offer")
+
+    def test_orphaned_player_line_does_not_offer_early(self):
+        # a failed turn left "hmm" with no narrator after it; on the retry only ONE completed
+        # passive beat exists, so the governor must still HOLD (not offer a phantom-stall hook)
+        log = T(("player", "hmm"), ("player", "look around"))
+        self.assertEqual(pacing.read(log, 0.1).directive, "hold")
 
     def test_single_passive_beat_holds(self):
         log = T(("player", "I search the tide-line carefully for anything the sea left behind."),
+                ("narrator", "The wet stones give up nothing but a tangle of kelp."),
                 ("player", "wait"))
         self.assertEqual(pacing.read(log, 0.1).directive, "hold")
 
     def test_high_tension_suppresses_offer(self):
-        # stalled, but tension is still high → let it breathe, don't inject
-        self.assertEqual(pacing.read(T(("player", "..."), ("player", "wait")), 0.8).directive, "hold")
+        # stalled (two passive beats), but tension is still high → let it breathe, don't inject
+        log = T(("player", "..."), ("narrator", "Something shifts in the dark."), ("player", "wait"))
+        self.assertEqual(pacing.read(log, 0.8).directive, "hold")
 
     def test_offer_clause_only_on_offer(self):
         self.assertEqual(pacing.prompt_clause(pacing.Pacing("hold", 0.3, 0.2, "")), "")

@@ -57,10 +57,24 @@ def load(path) -> list:
     for t in raw if isinstance(raw, list) else []:
         if isinstance(t, dict) and t.get("id") and t.get("question"):
             th = Thread(**{k: v for k, v in t.items() if k in known})
+            # coerce every field a hand-edited/corrupted plan file could malform, so a bad value
+            # can't crash advance() mid-turn (fail-soft: the pacing enhancement must never fail-closed)
             try:                                         # a non-int clock must not crash advance()
                 th.clock = int(th.clock) if th.clock is not None else None
             except (TypeError, ValueError):
                 th.clock = None
+            try:
+                th.readiness = min(1.0, max(0.0, float(th.readiness)))
+            except (TypeError, ValueError):
+                th.readiness = 0.0
+            try:
+                th.stage = int(th.stage)
+            except (TypeError, ValueError):
+                th.stage = 0
+            if not isinstance(th.entities, list):
+                th.entities = []
+            if not isinstance(th.stages, list):
+                th.stages = []
             out.append(th)
     return out
 

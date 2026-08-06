@@ -51,7 +51,10 @@ def make_handler(cfg: dict):
             if u.path in ("/", "/index.html"):
                 return self._send(200, (STATIC / "index.html").read_bytes(),
                                   "text/html; charset=utf-8")
-            cfg, tpath, world, spath = _ctx()
+            try:
+                cfg, tpath, world, spath = _ctx()      # a poisoned campaign → clean error, not a dropped connection
+            except Exception as e:
+                return self._send(500, {"error": f"bad config: {e}"})
             if u.path == "/api/state":
                 th = threads.load(spath.parent / "threads.json")
                 return self._send(200, {
@@ -87,12 +90,15 @@ def make_handler(cfg: dict):
 
         def do_POST(self):
             u = urllib.parse.urlparse(self.path)
-            length = int(self.headers.get("Content-Length") or 0)
             try:
+                length = max(0, int(self.headers.get("Content-Length") or 0))
                 body = json.loads(self.rfile.read(length) or b"{}")
             except Exception:
-                return self._send(400, {"error": "bad json"})
-            cfg, tpath, world, spath = _ctx()
+                return self._send(400, {"error": "bad request"})
+            try:
+                cfg, tpath, world, spath = _ctx()
+            except Exception as e:
+                return self._send(500, {"error": f"bad config: {e}"})
 
             if u.path == "/api/turn":
                 text = (body.get("input") or "").strip()
@@ -152,16 +158,18 @@ def make_handler(cfg: dict):
                     report = sleep.advance(cfg, world, thp)
                 except Exception as e:
                     return self._send(502, {"error": str(e)})
-                if not report.get("recap"):
-                    threads.save(thp, report["threads"])          # time passed quietly; persist ticks
-                    return self._send(200, {"recap": "", "beats": report["beats"], "resolved": []})
-                w = sleep.apply(report, thp, spath, approve=lambda *a: True)
-                return self._send(200, {"recap": w["recap"], "beats": report["beats"],
-                                        "resolved": w["resolved"]})
+                if report.get("recap"):
+                    w = sleep.apply(report, thp, spath, approve=lambda *a: True)
+                    return self._send(200, {"recap": w["recap"], "beats": report["beats"],
+                                            "resolved": w["resolved"]})
+                if report.get("due"):                             # due but recap failed → roll back, don't persist
+                    return self._send(502, {"error": "an event came due but the recap couldn't be written; try again"})
+                threads.save(thp, report["threads"])              # nothing due; time passed quietly, persist ticks
+                return self._send(200, {"recap": "", "beats": report["beats"], "resolved": []})
             if u.path == "/api/use":
                 name = (body.get("name") or "").strip()
                 base = config.ROOT / cfg["campaigns_dir"]
-                if not name or not (base / name / "world").is_dir():
+                if not config.valid_campaign_name(name) or not (base / name / "world").is_dir():
                     return self._send(400, {"error": "no such campaign"})
                 config.save({"campaign": name})
                 return self._send(200, {"active": name})
@@ -181,7 +189,7 @@ def make_handler(cfg: dict):
                 return self._send(200, {"ok": True})
             if u.path == "/api/new":
                 name = (body.get("name") or "").strip()
-                if not name or any(c in name for c in "/\\") or ".." in name:
+                if not config.valid_campaign_name(name):
                     return self._send(400, {"error": "bad name"})
                 cdir = config.ROOT / cfg["campaigns_dir"] / name
                 (cdir / "world").mkdir(parents=True, exist_ok=True)

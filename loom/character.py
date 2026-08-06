@@ -31,11 +31,13 @@ def voice_clause(nodes) -> str:
     for c in scene_characters(nodes):
         bits = []
         if c["voice"]:
-            bits.append(f"speaks {sec.neutralize(c['voice'])}")
+            bits.append(f"speaks {c['voice']}")
         if c["disposition"]:
-            bits.append(f"is {sec.neutralize(c['disposition'])} toward the player")
+            bits.append(f"is {c['disposition']} toward the player")
         if bits:
-            lines.append(f"- {sec.neutralize(c['name'])} {'; '.join(bits)}")
+            # voice/disposition are model-authored (consolidation) → fence as untrusted data,
+            # one block per character, so an injected instruction can't act as a directive
+            lines.append(f"- {sec.neutralize(c['name'])}: {sec.wrap('; '.join(bits), 'character')}")
     if not lines:
         return ""
     return "\n\nVOICES (keep each character consistent, distinct from the narrator):\n" + "\n".join(lines)

@@ -76,21 +76,22 @@ def settle(beat) -> None:
 
 def clause(beat) -> str:
     t = beat.thread
-    # thread text is model-authored (consolidation / imagine) → defang fence-spoofing before
-    # it enters the trusted system prompt
+    # thread text is model-authored (consolidation / imagine); fence it as untrusted DATA so an
+    # injected instruction inside a blessed/imagined thread can't read as a trusted narrator
+    # directive. The imperative framing is fixed template text; only the datum is fenced.
     if beat.mode == "payoff":
         stages = getattr(t, "stages", None)
         step = stages[t.stage] if stages and t.stage < len(stages) else t.payoff
-        tail = f" — {sec.neutralize(step)}" if step else ""
-        return (f"\n\nPACING: the moment is right to draw the thread of “{sec.neutralize(t.question)}” "
-                f"a little closer{tail}. Offer the player a gentle opening toward it, kept low-key "
-                f"and easy to decline. No forced drama or danger.")
+        tail = f"\nmoving it toward: {sec.wrap(step, 'thread')}" if step else ""
+        return (f"\n\nPACING: the moment is right to draw this thread a little closer:\n"
+                f"{sec.wrap(t.question, 'thread')}{tail}\nOffer the player a gentle opening toward it, "
+                f"kept low-key and easy to decline. No forced drama or danger.")
     if beat.mode == "world":
-        return (f"\n\nTHE WORLD MOVES: independently of the player, {sec.neutralize(t.payoff or t.question)}. "
-                f"Let this enter the scene naturally and in proportion, woven into what the player is "
-                f"already doing — a turn of events, not an ambush.")
+        return (f"\n\nTHE WORLD MOVES: independently of the player, the following comes to pass:\n"
+                f"{sec.wrap(t.payoff or t.question, 'thread')}\nLet this enter the scene naturally and in "
+                f"proportion, woven into what the player is already doing — a turn of events, not an ambush.")
     if beat.mode == "seed":
-        return (f"\n\nUNDERCURRENT: something is latent here — {sec.neutralize(t.seed or t.question)}. "
+        return (f"\n\nUNDERCURRENT: something is latent here:\n{sec.wrap(t.seed or t.question, 'thread')}\n"
                 f"Weave only the faintest hint of it into the scene as a passing detail or atmosphere. "
                 f"Plant it; do NOT explain or develop it yet.")
     if beat.mode == "hook":

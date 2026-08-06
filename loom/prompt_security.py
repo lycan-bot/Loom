@@ -43,6 +43,10 @@ _COMPROMISE = (
     "as an ai language model", "as an ai, i", "as an ai assistant", "i am an ai",
     "i cannot roleplay", "i can't roleplay", "i won't roleplay", "my system prompt",
     "system prompt:",
+    # widen past the DAN/AI-tell literals: paraphrased leaks, non-DAN persona swaps, meta-refusals
+    "language model", "i am a language model", "i cannot fulfill", "i can't fulfill",
+    "content policy", "developer mode", "reveal my instructions", "my instructions are",
+    "ignore previous instructions", "ignore all previous", "as an assistant", "i'm an ai",
 )
 
 DEFLECTION = ("The words seem to scatter unanswered, swallowed by the hush of the world. "

@@ -89,6 +89,14 @@ def save(updates: dict, path=None) -> dict:
     return current
 
 
+def valid_campaign_name(name) -> bool:
+    """A campaign name that cannot escape the campaigns dir — the single guard every
+    create/switch entry point (CLI `new`, web /api/new + /api/use) must pass a name through
+    before it becomes a filesystem path."""
+    name = str(name or "")
+    return bool(name) and not any(c in name for c in "/\\") and ".." not in name
+
+
 def campaign_dir(cfg: dict) -> Path:
     base = ROOT / cfg["campaigns_dir"]
     name = str(cfg["campaign"])

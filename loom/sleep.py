@@ -78,12 +78,18 @@ def apply(report, threads_path, state_path, approve=lambda *a: True):
     if not recap or not approve("sleep", recap, report):
         return {"recap": "", "resolved": []}
     by_id = {t.id: t for t in th}
-    for rid in list(report.get("resolved", [])) + list(report.get("due", [])):
-        t = by_id.get(rid)
-        if t and (rid in report.get("resolved", []) or t.kind == "clock"):
+    # ONLY fired clocks resolve during sleep — never a thread the recap model named. The model's
+    # `resolved` list is untrusted output; honoring it would let sleep silently spend a live
+    # player-facing question-thread's payoff (a diode leak). `due` is clocks-only (see advance).
+    resolved = []
+    for tid in report.get("due", []):
+        t = by_id.get(tid)
+        if t and t.kind == "clock":
             t.status = "resolved"            # a scheduled event, once recapped, has happened
+            resolved.append(tid)
     threads.save(threads_path, th)
     st = state.load(state_path)
-    st["_recap"] = recap
+    prior = st.get("_recap", "")                      # don't clobber a recap the player hasn't read
+    st["_recap"] = (prior + "\n\n" + recap).strip() if prior else recap
     state.save(state_path, st)
-    return {"recap": recap, "resolved": report.get("resolved", [])}
+    return {"recap": recap, "resolved": resolved}

@@ -108,6 +108,9 @@ def cmd_seal_check(cfg):
 
 
 def cmd_new(cfg, name):
+    if not config.valid_campaign_name(name):
+        print(f"bad campaign name {name!r} — no '/', '\\', or '..' (it must stay inside the campaigns dir).")
+        return
     cdir = config.ROOT / cfg["campaigns_dir"] / name
     (cdir / "world").mkdir(parents=True, exist_ok=True)
     canon.write_node(cdir / "world", "The World",
@@ -205,17 +208,21 @@ def cmd_sleep(cfg, auto=False):
         return
     print("the world turns while you're away…")
     report = sleep.advance(cfg, world, thpath)
-    if not report.get("recap"):
-        threads.save(thpath, report["threads"])          # time passed quietly; persist the clock ticks
+    if report.get("recap"):
+        print(f"\nwhile you were away ({report['beats']} beats of world-time passed):\n  {report['recap']}\n")
+
+        def approve(kind, recap, rep):
+            return auto or input("  fold this into the world? [y/N] ").strip().lower() in ("y", "yes")
+
+        w = sleep.apply(report, thpath, spath, approve)
+        print("folded — it will greet you when you return." if w["recap"] else "left as-is; the world un-moved.")
+    elif report.get("due"):
+        # a clock came due but the recap couldn't be written — don't persist the half-fired state;
+        # leaving threads.json untouched lets the event re-fire cleanly on the next sleep
+        print("an event came due but the recap couldn't be written (model unreachable?) — try again in a moment.")
+    else:
+        threads.save(thpath, report["threads"])          # nothing due; time passed quietly, persist the ticks
         print("nothing came due; the world waits as you left it.")
-        return
-    print(f"\nwhile you were away ({report['beats']} beats of world-time passed):\n  {report['recap']}\n")
-
-    def approve(kind, recap, rep):
-        return auto or input("  fold this into the world? [y/N] ").strip().lower() in ("y", "yes")
-
-    w = sleep.apply(report, thpath, spath, approve)
-    print("folded — it will greet you when you return." if w["recap"] else "left as-is; the world un-moved.")
 
 
 def cmd_npcs(cfg):

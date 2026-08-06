@@ -10,6 +10,7 @@ from pathlib import Path
 from . import canon, llm
 
 _TOK_RE = re.compile(r"\w+", re.UNICODE)
+_COS_FLOOR = 0.5          # cosine below this is fusion noise, not a genuine semantic match
 
 
 def _tokens(text: str) -> list[str]:
@@ -71,19 +72,23 @@ def retrieve(query: str, world: Path, cfg: dict, k: int | None = None) -> list[d
     lexical = _bm25(query, docs)
 
     ranked = lexical
+    # a node is genuinely "near" only if it had a real signal — a lexical hit or a strong cosine.
+    # RRF gives EVERY fused node a positive score, which would defeat narrate's `score>0` proximity
+    # gate (ripening threads on vague input); so relevance is tracked separately from fusion rank.
+    relevant = {name for name, s in lexical if s > 0}
     if cfg.get("use_embeddings"):
         vecs = llm.embed([query] + [d["body"] for d in docs], cfg)
         if vecs and len(vecs) == len(docs) + 1:      # shape guard: a short/reordered embed
             qv, dvs = vecs[0], vecs[1:]               # response must fall back to lexical, not crash
-            vec_ranked = sorted(
-                ((docs[i]["name"], _cosine(qv, dvs[i])) for i in range(len(docs))),
-                key=lambda x: x[1], reverse=True)
+            cos = [(docs[i]["name"], _cosine(qv, dvs[i])) for i in range(len(docs))]
+            vec_ranked = sorted(cos, key=lambda x: x[1], reverse=True)
             ranked = _rrf([lexical, vec_ranked])
+            relevant |= {name for name, c in cos if c >= _COS_FLOOR}
 
     out = []
     for name, score in ranked[:k]:
         d = by_name.get(name)
         if d:
-            out.append({**d, "score": score})
+            out.append({**d, "score": score if name in relevant else 0.0})
     # never leave a turn ungrounded: if lexical found nothing, fall back to all nodes
     return out or [{**d, "score": 0.0} for d in docs[:k]]

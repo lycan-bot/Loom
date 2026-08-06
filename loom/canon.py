@@ -21,8 +21,8 @@ def parse_frontmatter(content: str) -> dict:
     """Extract YAML frontmatter as a dict. Simple parser, no PyYAML needed."""
     if not content.startswith("---"):
         return {}
-    end = content.find("---", 3)
-    if end == -1:
+    end = content.find("\n---", 3)                # closing fence must be its OWN line, so an inline
+    if end == -1:                                 # '---' inside a value can't terminate it early
         return {}
     result = {}
     for line in content[3:end].strip().split("\n"):
@@ -40,9 +40,10 @@ def parse_frontmatter(content: str) -> dict:
 
 def _body_of(content: str) -> str:
     if content.startswith("---"):
-        end = content.find("---", 3)
+        end = content.find("\n---", 3)            # closing fence at the start of a line
         if end != -1:
-            return content[end + 3:].lstrip("\n")
+            nl = content.find("\n", end + 1)      # the newline ending that closing '---' line
+            return content[nl + 1:].lstrip("\n") if nl != -1 else ""
     return content
 
 
@@ -57,12 +58,21 @@ def _atomic_write(path: Path, text: str) -> None:
     os.replace(tmp, path)
 
 
+def _fm_clean(v) -> str:
+    """Frontmatter is single-line `key: value`. A newline in a key or value could inject extra
+    keys or an early '---' terminator (dropping title/kind, leaking into the body) — so collapse
+    line breaks out of every field before serializing."""
+    return str(v).replace("\n", " ").replace("\r", " ").strip()
+
+
 def write_node(world: Path, name: str, body: str, frontmatter: dict | None = None) -> Path:
+    from . import seal                                  # lazy: seal imports canon (avoid a cycle)
     fm = dict(frontmatter or {})
     fm.setdefault("title", name)
-    fm_lines = "\n".join(f"{k}: {v}" for k, v in fm.items())
+    fm_lines = "\n".join(f"{_fm_clean(k)}: {_fm_clean(v)}" for k, v in fm.items())
     content = f"---\n{fm_lines}\n---\n\n{body.strip()}\n"
     path = world / f"{slug(name)}.md"
+    seal.guard_path(path, world)                        # structural belt: the node file stays inside the world
     _atomic_write(path, content)
     return path
 
