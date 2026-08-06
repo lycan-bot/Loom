@@ -16,7 +16,7 @@ from . import canon, state, threads
 # markers that must never appear in fiction — signs the log bled into the real world
 _LEAK_PATTERNS = [
     re.compile(r"/(?:home|etc|root|var|usr|opt|boot|proc|sys|mnt|run|srv)/[^\s'\"]+"),
-    re.compile(r"[A-Za-z]:[\\/][^\s'\"]+"),          # C:\path or C:/path (both slash styles)
+    re.compile(r"\b[A-Za-z]:[\\/][^\s'\"]+"),        # C:\path or C:/path — \b so 'word:/x' prose doesn't match
     re.compile(r"\bprimarch\b", re.I),
     re.compile(r"\bSIGILUS_CONFIG_DIR\b"),
     re.compile(r"\binviolable_manifest\b", re.I),

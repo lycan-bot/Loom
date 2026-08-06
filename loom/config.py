@@ -90,11 +90,16 @@ def save(updates: dict, path=None) -> dict:
 
 
 def valid_campaign_name(name) -> bool:
-    """A campaign name that cannot escape the campaigns dir — the single guard every
-    create/switch entry point (CLI `new`, web /api/new + /api/use) must pass a name through
-    before it becomes a filesystem path."""
+    """A campaign name that cannot escape the campaigns dir OR crash the filesystem — the single
+    guard every create/switch entry point (CLI `new`, web /api/new + /api/use) must pass a name
+    through before it becomes a path. Rejects traversal, path separators, NUL/control characters
+    (an embedded-null ValueError on mkdir), and dot/space-only names that resolve to no real subdir."""
     name = str(name or "")
-    return bool(name) and not any(c in name for c in "/\\") and ".." not in name
+    if not name or any(c in name for c in "/\\") or ".." in name:
+        return False
+    if any(ord(c) < 32 for c in name):            # NUL / control chars → mkdir ValueError
+        return False
+    return name.strip(". ") != ""                 # ".", " ", "…" resolve to the campaigns dir itself
 
 
 def campaign_dir(cfg: dict) -> Path:

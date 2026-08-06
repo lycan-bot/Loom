@@ -69,6 +69,30 @@ class ConsolidateRobustTest(unittest.TestCase):
                if t.id == threads.make_id("who opened it?")]
         self.assertTrue(who and isinstance(who[0].entities, list))  # string entities coerced to a list
 
+    def test_non_string_scalar_fields_do_not_crash(self):
+        # the model can put a non-string SCALAR inside a valid dict (a list body, a numeric name,
+        # a numeric disposition) — normalization must drop these, never .strip()/slug()-crash
+        camp = _camp()
+        canon.write_node(camp / "world", "Mara", "a fisher", {"kind": "character"})
+        proposals = {
+            "nodes": [{"name": 42, "body": "x", "kind": "lore"},              # numeric name → skipped
+                      {"name": "Keep", "body": ["stone"], "kind": "place"},   # list body → coerced ""
+                      {"name": "Aldric", "body": "A knight.", "kind": "character"}],
+            "state": {},
+            "threads_new": [{"question": ["will he return?"]},               # list question → skipped
+                            {"question": "who opened the gate?", "entities": "The Gate"}],
+            "threads_resolved": [],
+            "character_updates": [{"name": ["A"], "disposition": "warm"},     # list name → skipped
+                                  {"name": "Mara", "disposition": 5},         # numeric disp → skipped
+                                  {"name": "Mara", "disposition": "warmer now"}],
+        }
+        written = consolidate.apply(proposals, camp / "world", camp / "state.json", approve=lambda *a: True)
+        self.assertIn("Aldric", written["nodes"])
+        self.assertIsNotNone(canon.read_node(camp / "world", "Keep"))         # list body coerced, node made
+        self.assertNotIn(42, written["nodes"])
+        self.assertIn("who opened the gate?", written["threads"])
+        self.assertEqual(written["dispositions"], ["Mara"])                   # only the valid disp landed
+
 
 # ── HIGH/MEDIUM: the seal — leak scan and campaign-name guards ──
 class SealTest(unittest.TestCase):
@@ -78,6 +102,12 @@ class SealTest(unittest.TestCase):
 
     def test_fiction_stays_clean(self):
         self.assertEqual(seal.leaks_in("The harbor road winds north to the old lighthouse."), [])
+
+    def test_prose_colon_slash_not_a_false_drive_path(self):
+        # the broadened Windows-path regex must not flag 'word:/more' prose as a fake C:-drive leak
+        for s in ("The runes read HOME:/HEARTH:/BLOOD", "the ledger gold:/silver was 3 to 1",
+                  "a note scrawled TODO:/finish the ritual"):
+            self.assertEqual(seal.leaks_in(s), [], s)
 
     def test_write_node_guard_path_belt(self):
         camp = _camp()
@@ -91,6 +121,12 @@ class CampaignNameGuardTest(unittest.TestCase):
             self.assertFalse(config.valid_campaign_name(bad), bad)
         for good in ("alpha", "my-world", "Camp_1"):
             self.assertTrue(config.valid_campaign_name(good), good)
+
+    def test_rejects_nul_control_and_dot_only(self):
+        # a NUL/control char crashes mkdir with ValueError; a dot/space-only name resolves to the
+        # campaigns dir itself — both must be rejected by the one guard, not reach the filesystem
+        for bad in ("\x00", "a\x00b", "\n", ".", " ", "  ", "..."):
+            self.assertFalse(config.valid_campaign_name(bad), repr(bad))
 
     def test_campaign_dir_rejects_traversal(self):
         with self.assertRaises(ValueError):
@@ -187,6 +223,17 @@ class ThreadsCoerceTest(unittest.TestCase):
         self.assertEqual(tl[0].readiness, 0.0)                        # coerced, not None
         threads.advance(tl, ["X"])                                    # must not raise
 
+    def test_negative_stage_is_clamped(self):
+        from loom import director
+        camp = _camp()
+        (camp / "threads.json").write_text(json.dumps([
+            {"id": "x", "question": "who lit the tower?", "kind": "question", "status": "ready",
+             "readiness": 0.9, "entities": ["Tower"], "stage": -5,
+             "stages": ["a beat", "b beat"]}]), encoding="utf-8")
+        tl = threads.load(camp / "threads.json")
+        self.assertEqual(tl[0].stage, 0)                              # clamped, not -5
+        director.clause(director.Beat("payoff", tl[0]))              # must not IndexError
+
 
 # ── MEDIUM: embeddings RRF must not make every node count as "near" ──
 class RetrieveFloorTest(unittest.TestCase):
@@ -236,6 +283,7 @@ class WebGuardTest(unittest.TestCase):
             with urllib.request.urlopen(req, timeout=5) as r:
                 return r.status
         except urllib.error.HTTPError as e:
+            e.close()
             return e.code
 
     def test_new_rejects_traversal(self):

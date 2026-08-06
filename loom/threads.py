@@ -68,7 +68,7 @@ def load(path) -> list:
             except (TypeError, ValueError):
                 th.readiness = 0.0
             try:
-                th.stage = int(th.stage)
+                th.stage = max(0, int(th.stage))     # a negative stage would index a stages arc from the end
             except (TypeError, ValueError):
                 th.stage = 0
             if not isinstance(th.entities, list):

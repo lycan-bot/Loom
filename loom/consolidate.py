@@ -19,6 +19,57 @@ def _dicts(x):
     return [e for e in x if isinstance(e, dict)] if isinstance(x, list) else []
 
 
+def _s(x, default=""):
+    """A model scalar coerced to a clean string — a non-str field becomes the default, never a
+    crash (`.strip()` / slug on a list or number is the whole class of bug this closes)."""
+    return x if isinstance(x, str) else default
+
+
+def _normalize(proposals: dict) -> dict:
+    """Coerce grammar-valid-but-unshaped model output into clean, typed structures so the write
+    loop can never crash on a bad type or leave a partial commit. Every malformed field is
+    dropped here, up front — nothing downstream ever sees a non-string where a string is due."""
+    def _named(d):
+        n = d.get("name")
+        return n if isinstance(n, str) and n.strip() else None
+
+    nodes = []
+    for n in _dicts(proposals.get("nodes")):
+        name = _named(n)
+        if not name:
+            continue
+        rf = n.get("fields")
+        fields = {k: v for k, v in rf.items() if isinstance(v, str) and v} if isinstance(rf, dict) else {}
+        nodes.append({"name": name, "body": _s(n.get("body")).strip(),
+                      "kind": _s(n.get("kind"), "lore"), "fields": fields})
+
+    threads_new = []
+    for t in _dicts(proposals.get("threads_new")):
+        q = _s(t.get("question")).strip()
+        if not q:
+            continue
+        re_ = t.get("entities")
+        ents = ([e for e in re_ if isinstance(e, str)] if isinstance(re_, list)
+                else [re_] if isinstance(re_, str) and re_ else [])
+        threads_new.append({"question": q, "entities": ents,
+                            "seed": _s(t.get("seed")), "payoff": _s(t.get("payoff"))})
+
+    updates = []
+    for c in _dicts(proposals.get("character_updates")):
+        name, disp = _named(c), _s(c.get("disposition")).strip()
+        if name and disp:
+            updates.append({"name": name, "disposition": disp})
+
+    resolved_raw = proposals.get("threads_resolved")
+    return {
+        "nodes": nodes,
+        "state": {str(k): v for k, v in proposals["state"].items()} if isinstance(proposals.get("state"), dict) else {},
+        "threads_new": threads_new,
+        "threads_resolved": [r for r in resolved_raw if isinstance(r, str)] if isinstance(resolved_raw, list) else [],
+        "character_updates": updates,
+    }
+
+
 def _loads_lenient(text: str):
     """json.loads, but if the object was truncated (e.g. hit max_tokens), repair it by
     closing any open string and balancing braces/brackets. The grammar guarantees valid
@@ -102,21 +153,23 @@ def propose(cfg: dict, session_lines: list[dict], existing_threads=None) -> dict
 
 
 def apply(proposals: dict, world: Path, state_path: Path, approve) -> dict:
-    """Write approved proposals to canon + state. `approve(kind, name, payload) -> bool`
-    is called for EVERY change; nothing is written unless it returns True. This callback
-    is the diode — the operator's hand between improv and canon.
+    """Write approved proposals to canon + state. `approve(kind, name, payload) -> bool` is
+    called for EVERY change; nothing is written unless it returns True — the diode, the operator's
+    hand between improv and canon.
+
+    Model output is grammar-valid JSON but NOT shape-checked, so it is normalized to clean typed
+    structures first (`_normalize`): a mistyped field is dropped, never crashed on mid-write, so a
+    garbled reply can't leave half-written canon (propose→bless atomicity).
     """
+    p = _normalize(proposals)
     written: dict[str, list] = {"nodes": [], "state": [], "threads": [], "resolved": [], "dispositions": []}
-    for node in _dicts(proposals.get("nodes")):
-        name = node.get("name")
-        body = (node.get("body") or "").strip()
-        raw_fields = node.get("fields")
-        fields = {k: v for k, v in raw_fields.items() if v} if isinstance(raw_fields, dict) else {}  # card fields
-        if not name or not approve("node", name, node):
+    for node in p["nodes"]:
+        name, body, fields = node["name"], node["body"], node["fields"]
+        if not approve("node", name, node):
             continue
         existing = canon.read_node(world, name)
         if existing is None:                                      # create, with any card fields
-            canon.write_node(world, name, body, {"kind": node.get("kind", "lore"), **fields})
+            canon.write_node(world, name, body, {"kind": node["kind"], **fields})
             written["nodes"].append(name)
             continue
         fm = dict(existing["frontmatter"])                        # preserve drives, voice, etc.
@@ -133,8 +186,7 @@ def apply(proposals: dict, world: Path, state_path: Path, approve) -> dict:
             written["nodes"].append(name)
     st = state.load(state_path)
     changed = False
-    state_in = proposals.get("state") if isinstance(proposals.get("state"), dict) else {}
-    for key, val in state_in.items():
+    for key, val in p["state"].items():
         if approve("state", key, val):
             st[key] = val
             written["state"].append(key)
@@ -147,27 +199,19 @@ def apply(proposals: dict, world: Path, state_path: Path, approve) -> dict:
     th = threads.load(thpath)
     by_id = {t.id: t for t in th}
     th_changed = False
-    for nt in _dicts(proposals.get("threads_new")):
-        q = (nt.get("question") or "").strip()
-        if not q:
-            continue
+    for nt in p["threads_new"]:
+        q = nt["question"]
         tid = threads.make_id(q)
         if tid in by_id:                                 # dedup against existing
             continue
-        raw_ents = nt.get("entities")                    # coerce to a clean list of names
-        ents = ([e for e in raw_ents if isinstance(e, str)] if isinstance(raw_ents, list)
-                else [raw_ents] if isinstance(raw_ents, str) and raw_ents else [])
         if approve("thread", q, nt):
             new = threads.Thread(id=tid, question=q, kind="question", status="dormant",
-                                 entities=ents, seed=nt.get("seed") or "",
-                                 payoff=nt.get("payoff") or "")
+                                 entities=nt["entities"], seed=nt["seed"], payoff=nt["payoff"])
             th.append(new)
             by_id[tid] = new
             written["threads"].append(q)
             th_changed = True
-    for rid in proposals.get("threads_resolved") or []:
-        if not isinstance(rid, str):
-            continue
+    for rid in p["threads_resolved"]:
         t = by_id.get(rid)
         if t and t.status != "resolved" and approve("resolve", rid, t.question):
             t.status = "resolved"
@@ -177,11 +221,8 @@ def apply(proposals: dict, world: Path, state_path: Path, approve) -> dict:
         threads.save(thpath, th)
 
     # a character's disposition toward the player, updated in place (relationship growth)
-    for cu in _dicts(proposals.get("character_updates")):
-        name = cu.get("name")
-        disp = (cu.get("disposition") or "").strip()
-        if not name or not disp:
-            continue
+    for cu in p["character_updates"]:
+        name, disp = cu["name"], cu["disposition"]
         node = canon.read_node(world, name)
         if node is None or node["frontmatter"].get("kind") != "character":
             continue
