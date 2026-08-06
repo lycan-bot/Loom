@@ -12,13 +12,15 @@ Usage:
   python -m loom npcs                   sync character drives into relational threads
   python -m loom imagine [--yes]        dream new threads from the canon (imagination organ)
   python -m loom sleep [--yes]          advance the world between sessions (depth-gated)
+  python -m loom world                  play one world round — major NPCs take their turns
+  python -m loom world-show on|off      toggle showing the world round each turn during play
   python -m loom mechanics on|off       toggle the optional dice layer (impartial d20)
   python -m loom depth <0.0-1.0>        realness dial — 0 mirror (agrees) … 1 other (resists)
   python -m loom web [--port N]         browser UI (play + world map), default :8100
 """
 from __future__ import annotations
 import sys
-from . import config, narrate, consolidate, seal, transcript, canon, state, llm, threads, npc, imagine, guard, sleep
+from . import config, narrate, consolidate, seal, transcript, canon, state, llm, threads, npc, imagine, guard, sleep, worldturn
 
 
 def _paths(cfg):
@@ -225,6 +227,31 @@ def cmd_sleep(cfg, auto=False):
         print("nothing came due; the world waits as you left it.")
 
 
+def cmd_world(cfg):
+    _, world, _ = _paths(cfg)
+    if float(cfg.get("depth", 0) or 0) <= 0:
+        print("the world's people don't act on their own at depth 0 — raise depth ('loom depth 0.5') to let them.")
+        return
+    print("the world takes its turn…\n")
+    report = worldturn.run(cfg, world)
+    if not report["turns"]:
+        if report["pending"]:
+            print("the world stirred but the round couldn't be written (model unreachable?).")
+        else:
+            print("no one here has an agenda of their own yet — give a character a 'wants:' in their node.")
+        return
+    for t in report["turns"]:
+        who = ", ".join(t.get("who") or []) or "someone"
+        where = t.get("where") or "parts unknown"
+        print(f"  [{where}] {who}: {t['beat']}")
+
+
+def cmd_world_show(cfg, arg):
+    on = arg == "on"
+    config.save({"world_rounds": on})
+    print(f"world rounds {'SHOWN each turn during play' if on else 'hidden (they still run in the background)'}.")
+
+
 def cmd_npcs(cfg):
     _, world, spath = _paths(cfg)
     ds = npc.drives(world)
@@ -273,6 +300,10 @@ def main(argv=None):
         cmd_imagine(cfg, auto="--yes" in argv)
     elif cmd == "sleep":
         cmd_sleep(cfg, auto="--yes" in argv)
+    elif cmd == "world":
+        cmd_world(cfg)
+    elif cmd == "world-show" and len(argv) > 1:
+        cmd_world_show(cfg, argv[1])
     else:
         print(__doc__)
 
