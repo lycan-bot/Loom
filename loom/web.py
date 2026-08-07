@@ -10,7 +10,7 @@ import json
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from . import config, canon, state, transcript, narrate, consolidate, llm, threads, imagine, guard, character, sleep, worldturn, player, generate, setting, length
+from . import config, canon, state, transcript, narrate, consolidate, llm, threads, imagine, guard, character, sleep, worldturn, player, generate, setting
 
 STATIC = Path(__file__).resolve().parent / "static"
 
@@ -92,8 +92,7 @@ def make_handler(cfg: dict):
             if u.path == "/api/config":
                 return self._send(200, {"depth": cfg.get("depth", 0.0), "mechanics": bool(cfg.get("mechanics")),
                                         "world_rounds": bool(cfg.get("world_rounds")),
-                                        "world_cadence": cfg.get("world_cadence", 3),
-                                        "length": length.normalize(cfg.get("length")), "lengths": list(length.LEVELS)})
+                                        "world_cadence": cfg.get("world_cadence", 3)})
             if u.path == "/api/setting":
                 return self._send(200, setting.card(world))
             return self._send(404, {"error": "not found"})
@@ -210,8 +209,6 @@ def make_handler(cfg: dict):
                     up["mechanics"] = bool(body["mechanics"])
                 if "world_rounds" in body:
                     up["world_rounds"] = bool(body["world_rounds"])
-                if body.get("length") in length.LEVELS:
-                    up["length"] = body["length"]
                 if up:
                     config.save(up)
                 return self._send(200, {"ok": True})

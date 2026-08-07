@@ -1,6 +1,9 @@
 ---
-title: The World
 kind: lore
+genre: Lovecraftian coastal horror
+tone: dread, damp, hushed
+setting: true
+title: The World
 ---
 
 The grey port of **Saltmarrow** clings to the edge of a cold northern sea, its

@@ -17,12 +17,11 @@ Usage:
   python -m loom world-show on|off      toggle showing the world round each turn during play
   python -m loom mechanics on|off       toggle the optional dice layer (impartial d20)
   python -m loom depth <0.0-1.0>        realness dial — 0 mirror (agrees) … 1 other (resists)
-  python -m loom length <level>         narrator wordiness — terse | brief | vivid | lavish
   python -m loom web [--port N]         browser UI (play + world map), default :8100
 """
 from __future__ import annotations
 import sys
-from . import config, narrate, consolidate, seal, transcript, canon, state, llm, threads, npc, imagine, guard, sleep, worldturn, generate, length
+from . import config, narrate, consolidate, seal, transcript, canon, state, llm, threads, npc, imagine, guard, sleep, worldturn, generate
 
 
 def _paths(cfg):
@@ -176,14 +175,6 @@ def cmd_depth(cfg, arg):
     config.save({"depth": v})
     label = "mirror — the world agrees" if v == 0 else "other — the world resists" if v >= 0.8 else "in between"
     print(f"realness depth set to {v} ({label}).")
-
-
-def cmd_length(cfg, arg):
-    if arg not in length.LEVELS:
-        print(f"length must be one of: {', '.join(length.LEVELS)}.")
-        return
-    config.save({"length": arg})
-    print(f"narrator wordiness set to '{arg}'.")
 
 
 def cmd_check(cfg):
@@ -340,8 +331,6 @@ def main(argv=None):
         cmd_mechanics(cfg, argv[1])
     elif cmd == "depth" and len(argv) > 1:
         cmd_depth(cfg, argv[1])
-    elif cmd == "length" and len(argv) > 1:
-        cmd_length(cfg, argv[1])
     elif cmd == "new" and len(argv) > 1:
         cmd_new(cfg, argv[1])
     elif cmd == "worlds":
