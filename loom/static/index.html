@@ -72,6 +72,9 @@
 <header>
   <h1>loom</h1>
   <select id="worldsel" class="meta" title="switch world"></select>
+  <a class="mini" style="margin-left:14px" onclick="editPlayer()" title="Your character in this world">You</a>
+  <a class="mini" style="margin-left:12px" onclick="genWorld()" title="Roll a new world from a prompt">✦ Generate</a>
+  <a class="mini" style="margin-left:12px" onclick="editSettings()" title="Depth, world round, dice">⚙</a>
   <span class="meta" style="margin-left:auto"><span class="dot" id="mdot"></span><span id="model">…</span></span>
 </header>
 <div class="wrap">
@@ -82,6 +85,7 @@
       <button id="send" type="submit">Send</button>
       <button id="consolidate" class="ghost" type="button" title="Fold this session into canon">Consolidate</button>
       <button id="imagine" class="ghost" type="button" title="Dream a new thread from the canon">Imagine</button>
+      <button id="sleep" class="ghost" type="button" title="Let the world turn while you're away">Sleep</button>
     </form>
   </section>
   <section class="world">
@@ -120,25 +124,84 @@ async function openNode(name){
 // ---- authoring: native editing, no external editor needed ----
 function _field(l,id,v,tag){return `<label>${l}</label>`+(tag==="textarea"?`<textarea id="${id}">${esc(v||"")}</textarea>`:`<input id="${id}" value="${esc(v||"")}">`);}
 function _charFields(c){return _field("role","f_role",c.role)+_field("met","f_met",c.met)+_field("voice","f_voice",c.voice)+_field("disposition","f_disp",c.disposition)+_field("wants","f_wants",c.want)+_field("held by","f_bound",c.bound);}
+function _loreFields(f){return `<div class="kind" style="margin:6px 0">world card (the theme this scene is written in)</div>`+_field("genre","f_genre",f.genre)+_field("age","f_age",f.age)+_field("tech","f_tech",f.tech)+_field("magic","f_magic",f.magic)+_field("peoples","f_peoples",f.peoples)+_field("tone","f_tone",f.tone);}
+function _xfields(kind,c,f){return kind==="character"?_charFields(c):kind==="lore"?_loreFields(f||{}):"";}
 async function editNode(name){
-  const n=name?await (await fetch("/api/node?name="+encodeURIComponent(name))).json():{name:"",kind:"lore",body:"",card:{}};
-  const c=n.card||{}, kinds=["lore","place","character","faction","event"];
+  const n=name?await (await fetch("/api/node?name="+encodeURIComponent(name))).json():{name:"",kind:"lore",body:"",card:{},fields:{}};
+  const c=n.card||{}, f=n.fields||{}, kinds=["lore","place","character","faction","event"];
   const cancel=name?`openNode('${name.replace(/'/g,"\\'")}')`:"loadState()";
   $("reader").innerHTML=`<div class="edit"><h2>${name?esc(name):"new node"}</h2>`+
     (name?"":_field("name","f_name","","input"))+
     `<label>kind</label><select id="f_kind">`+kinds.map(k=>`<option${k===n.kind?" selected":""}>${k}</option>`).join("")+`</select>`+
-    `<div id="charfields">`+((n.kind==="character")?_charFields(c):"")+`</div>`+
+    `<div id="xfields">`+_xfields(n.kind,c,f)+`</div>`+
     _field("description","f_body",n.body||c.description||"","textarea")+
     `<div class="row"><button onclick="saveNode('${(name||"").replace(/'/g,"\\'")}')">Save</button>`+
     `<button class="ghost" onclick="${cancel}">Cancel</button></div></div>`;
-  $("f_kind").onchange=()=>{$("charfields").innerHTML=$("f_kind").value==="character"?_charFields(c):"";};
+  $("f_kind").onchange=()=>{$("xfields").innerHTML=_xfields($("f_kind").value,c,f);};
 }
 async function saveNode(orig){
   const name=orig||($("f_name")?$("f_name").value.trim():""); if(!name) return;
   const kind=$("f_kind").value, fields={};
   if(kind==="character") for(const [k,id] of [["role","f_role"],["met","f_met"],["voice","f_voice"],["disposition","f_disp"],["wants","f_wants"],["bound","f_bound"]]){const el=$(id); if(el&&el.value.trim()) fields[k]=el.value.trim();}
+  if(kind==="lore"){for(const [k,id] of [["genre","f_genre"],["age","f_age"],["tech","f_tech"],["magic","f_magic"],["peoples","f_peoples"],["tone","f_tone"]]){const el=$(id); if(el&&el.value.trim()) fields[k]=el.value.trim();} if(Object.keys(fields).length) fields.setting="true";}
   await fetch("/api/node/save",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name,kind,body:$("f_body").value,fields})});
   await loadState(); openNode(name);
+}
+// ---- player character, world generation, session settings, sleep ----
+async function editPlayer(){
+  const p=await (await fetch("/api/player")).json();
+  $("reader").innerHTML=`<div class="edit"><h2>Your character</h2><div class="kind">who you are in this world — the narrator will know you</div>`+
+    _field("name","p_name",p.name||"","input")+_field("role","p_role",p.role||"","input")+
+    _field("wants","p_wants",p.wants||"","input")+_field("where you start","p_loc",p.location||"","input")+
+    _field("description","p_desc",p.description||"","textarea")+
+    `<div class="row"><button onclick="savePlayer()">Save</button><button class="ghost" onclick="loadState()">Cancel</button></div></div>`;
+}
+async function savePlayer(){
+  const name=$("p_name").value.trim(); if(!name){return;}
+  await fetch("/api/player/save",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({name,role:$("p_role").value,wants:$("p_wants").value,location:$("p_loc").value,description:$("p_desc").value})});
+  await loadState(); addTurn("sys",`you are now ${esc(name)}. the world knows you.`);
+}
+async function genWorld(){
+  $("reader").innerHTML=`<div class="edit"><h2>✦ Generate a world</h2><div class="kind">a base prompt, or leave blank to roll random</div>`+
+    _field("prompt / seed","g_seed","","textarea")+
+    `<div class="row"><button onclick="rollWorld()">Roll</button><button class="ghost" onclick="loadState()">Cancel</button></div><div id="g_out"></div></div>`;
+}
+async function rollWorld(){
+  $("g_out").innerHTML="<div class='kind' style='margin-top:10px'>rolling… (a few seconds)</div>";
+  const r=await fetch("/api/generate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({seed:$("g_seed").value.trim()})});
+  const j=await r.json();
+  if(!r.ok||!j.world||!j.world.name){$("g_out").innerHTML="<div class='kind'>the roll came up empty — try again.</div>";return;}
+  const w=j.world, row=(l,v)=>v?`<div class="crow"><span class="clabel">${l}</span> ${esc(v)}</div>`:"";
+  window._rolled={world:w,cast:j.cast||[]};
+  $("g_out").innerHTML=`<h2 style="margin-top:14px">${esc(w.name)}</h2><div class="kind">${esc(w.genre||"")}</div><div class="body">${esc(w.premise||"")}</div>`+
+    row("age",w.age)+row("tech",w.tech)+row("magic",w.magic)+row("peoples",w.peoples)+row("tone",w.tone)+
+    `<div class="body" style="margin-top:8px">${esc(w.body||"")}</div><div class="kind" style="margin-top:10px">CAST</div>`+
+    (j.cast||[]).map(c=>`<div class="crow"><b>${esc(c.name)}</b> — ${esc(c.role||"")}${c.location?" @ "+esc(c.location):""}</div>`).join("")+
+    _field("save as new world","g_name",(w.name||"world").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,""),"input")+
+    `<div class="row"><button onclick="createWorld()">Create &amp; switch</button><button class="ghost" onclick="rollWorld()">Reroll</button></div>`;
+}
+async function createWorld(){
+  const name=$("g_name").value.trim(); if(!name||!window._rolled){return;}
+  const r=await fetch("/api/generate/apply",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({name,world:window._rolled.world,cast:window._rolled.cast})});
+  const j=await r.json();
+  if(!r.ok){$("g_out").innerHTML+=`<div class="kind">⚠ ${esc(j.error||"failed")}</div>`;return;}
+  await loadState(); addTurn("sys",`created & switched to '${esc(name)}'. type to begin.`);
+}
+async function editSettings(){
+  const c=await (await fetch("/api/config")).json();
+  const opt=(v,l)=>`<option value="${v}"${Math.abs((c.depth||0)-v)<0.01?" selected":""}>${l}</option>`;
+  $("reader").innerHTML=`<div class="edit"><h2>⚙ Session</h2>`+
+    `<label>realness depth (mirror → other)</label><select id="s_depth">`+opt(0,"0 · mirror (the world agrees)")+opt(0.5,"0.5 · in between")+opt(1,"1 · other (the world resists)")+`</select>`+
+    `<label style="display:block;margin-top:8px"><input type="checkbox" id="s_world" ${c.world_rounds?"checked":""}> show the world round each turn (major NPCs take turns)</label>`+
+    `<label style="display:block"><input type="checkbox" id="s_mech" ${c.mechanics?"checked":""}> dice — an impartial d20 on uncertain actions</label>`+
+    `<div class="row"><button onclick="saveSettings()">Apply</button><button class="ghost" onclick="loadState()">Close</button></div></div>`;
+}
+async function saveSettings(){
+  await fetch("/api/config",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({depth:parseFloat($("s_depth").value),world_rounds:$("s_world").checked,mechanics:$("s_mech").checked})});
+  addTurn("sys","session settings applied.");await loadState();
 }
 async function delNode(name){
   if(!confirm("Delete node “"+name+"”?")) return;
@@ -281,6 +344,15 @@ $("imagine").addEventListener("click",async()=>{
   const res=await (await fetch("/api/imagine/bless",{method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({candidates:cands,approved_ids:cands.map(c=>c.id)})})).json();
   addTurn("sys",`blessed ${(res.added||[]).length} dreamed thread(s) into the plan.`);
+  await loadState();
+});
+
+$("sleep").addEventListener("click",async()=>{
+  addTurn("sys","the world turns while you're away…");
+  const j=await (await fetch("/api/sleep",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"})).json();
+  if(j.recap)addTurn("sys","— while you were away —\n"+j.recap);
+  else if(j.error)addTurn("sys","⚠ "+j.error);
+  else addTurn("sys","nothing came due; the world waits as you left it.  (raise depth in ⚙ to let it move.)");
   await loadState();
 });
 

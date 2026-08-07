@@ -10,7 +10,7 @@ import json
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from . import config, canon, state, transcript, narrate, consolidate, llm, threads, imagine, guard, character, sleep, worldturn, player
+from . import config, canon, state, transcript, narrate, consolidate, llm, threads, imagine, guard, character, sleep, worldturn, player, generate, setting
 
 STATIC = Path(__file__).resolve().parent / "static"
 
@@ -78,7 +78,8 @@ def make_handler(cfg: dict):
                 if not node:
                     return self._send(404, {"error": "no such node"})
                 resp = {"name": node["name"], "body": node["body"],
-                        "kind": node["frontmatter"].get("kind", "lore"), "links": node["links"]}
+                        "kind": node["frontmatter"].get("kind", "lore"), "links": node["links"],
+                        "fields": {k: v for k, v in node["frontmatter"].items() if k not in ("kind", "title")}}
                 if resp["kind"] == "character":
                     resp["card"] = character.card(node)
                 return self._send(200, resp)
@@ -88,6 +89,12 @@ def make_handler(cfg: dict):
                 return self._send(200, {"campaigns": names, "active": cfg["campaign"]})
             if u.path == "/api/player":
                 return self._send(200, player.card(world))
+            if u.path == "/api/config":
+                return self._send(200, {"depth": cfg.get("depth", 0.0), "mechanics": bool(cfg.get("mechanics")),
+                                        "world_rounds": bool(cfg.get("world_rounds")),
+                                        "world_cadence": cfg.get("world_cadence", 3)})
+            if u.path == "/api/setting":
+                return self._send(200, setting.card(world))
             return self._send(404, {"error": "not found"})
 
         def do_POST(self):
@@ -191,6 +198,47 @@ def make_handler(cfg: dict):
                 player.save(world, name, role=body.get("role") or "", description=body.get("description") or "",
                             wants=body.get("wants") or "", location=body.get("location") or "")
                 return self._send(200, {"ok": True, "player": player.card(world)})
+            if u.path == "/api/config":
+                up = {}
+                if "depth" in body:
+                    try:
+                        up["depth"] = max(0.0, min(1.0, float(body["depth"])))
+                    except (TypeError, ValueError):
+                        pass
+                if "mechanics" in body:
+                    up["mechanics"] = bool(body["mechanics"])
+                if "world_rounds" in body:
+                    up["world_rounds"] = bool(body["world_rounds"])
+                if up:
+                    config.save(up)
+                return self._send(200, {"ok": True})
+            if u.path == "/api/generate":                     # roll a world + cast (no write)
+                seed = (body.get("seed") or "").strip()
+                try:
+                    n = max(1, min(6, int(body.get("n") or 3)))
+                except (TypeError, ValueError):
+                    n = 3
+                try:
+                    wc = generate.world(cfg, seed)
+                    cast = generate.cast(cfg, wc, n) if (wc.get("name") or wc.get("body")) else []
+                except llm.LLMError as e:
+                    return self._send(502, {"error": str(e)})
+                return self._send(200, {"world": wc, "cast": cast})
+            if u.path == "/api/generate/apply":               # write a rolled world into a NEW campaign
+                name = (body.get("name") or "").strip()
+                wc = body.get("world") if isinstance(body.get("world"), dict) else None
+                if not config.valid_campaign_name(name):
+                    return self._send(400, {"error": "bad campaign name"})
+                if not wc:
+                    return self._send(400, {"error": "no world to write"})
+                cdir = config.ROOT / cfg["campaigns_dir"] / name
+                if (cdir / "world").exists() and any((cdir / "world").glob("*.md")):
+                    return self._send(400, {"error": f"campaign '{name}' already exists"})
+                (cdir / "world").mkdir(parents=True, exist_ok=True)
+                generate.write_world(cdir / "world", wc, [c for c in (body.get("cast") or []) if isinstance(c, dict)])
+                state.save(cdir / "state.json", {})
+                config.save({"campaign": name})
+                return self._send(200, {"ok": True, "name": name})
             if u.path == "/api/node/save":
                 name = (body.get("name") or "").strip()
                 if not name:
