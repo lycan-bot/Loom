@@ -92,7 +92,8 @@ def make_handler(cfg: dict):
             if u.path == "/api/config":
                 return self._send(200, {"depth": cfg.get("depth", 0.0), "mechanics": bool(cfg.get("mechanics")),
                                         "world_rounds": bool(cfg.get("world_rounds")),
-                                        "world_cadence": cfg.get("world_cadence", 3)})
+                                        "world_cadence": cfg.get("world_cadence", 3),
+                                        "tone_steer": bool(cfg.get("tone_steer"))})
             if u.path == "/api/setting":
                 return self._send(200, setting.card(world))
             return self._send(404, {"error": "not found"})
@@ -209,6 +210,8 @@ def make_handler(cfg: dict):
                     up["mechanics"] = bool(body["mechanics"])
                 if "world_rounds" in body:
                     up["world_rounds"] = bool(body["world_rounds"])
+                if "tone_steer" in body:
+                    up["tone_steer"] = bool(body["tone_steer"])
                 if up:
                     config.save(up)
                 return self._send(200, {"ok": True})
