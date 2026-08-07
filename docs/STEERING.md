@@ -127,3 +127,46 @@ like length is exactly the wrong shape for them.
 **Takeaway:** vector-steered brevity is a *modest* tool (~15% at scale ≈1.0), not the strong lever we
 wanted. The better bet is **register/tone** (dread↔cozy, ornate↔spare) — a strong semantic axis where
 vectors excel, and which composes with the authored `genre`. That is the experiment worth running next.
+
+---
+
+## Results — the tone experiment (2026-08-07) ★ this one works
+
+A **bipolar dread↔cozy** vector (`steering/tone_{dread,cozy}.txt`, 18 matched grim/warm pairs →
+`steering/tone.gguf`) genuinely swings the whole register on **one signed scalar**, coherently:
+
+| scale (layers 12–28) | tone |
+|---|---|
+| **+3** | strong dread — *"eerie silence… bedsheets stained as if a struggle… hairs on the back of your neck"* |
+| **+2** | eerie, uncanny — *"a shiver down your spine… tapestries of dark rituals… an otherworldly glow"* |
+| **0** | neutral |
+| **−5** | warm/cozy — *"a cozy, inviting atmosphere… breakfast for two… a plush sofa invites you to sink in"* |
+| **> +4.5** | shatters |
+
+It **works** where brevity didn't — because *mood is a strong semantic axis*, the shape control vectors
+are built for (cf. Primarch's verify↔sycophant). It is **asymmetric** (dread emerges near +2.5, cozy
+needs ~−5, since a generic scene already leans slightly bleak) — so the usable dial is roughly
+**cozy −5 … 0 … dread +3**, with a hard ceiling past +4.5.
+
+## Making tone follow the setting (Wolf's question)
+
+Tone is not one setting — a magic university is warm/wondrous, its monster-infested Fens are grim, a
+summoned-demon familiar is uncanny. So tone must be a **context-driven scalar**, not a fixed vibe.
+The signed scale above IS that scalar; drive it from signals loom already has:
+
+1. **Genre baseline** (`setting.py`) → a default scale per world (cosmic-horror ≈ +2.5; cozy fantasy ≈
+   −3; the magic-university ≈ slightly warm).
+2. **Per-location tone** — a `tone:` on place nodes overrides it (the library → cozy; the Blighted
+   Fens → dread), so the register shifts as the player moves.
+3. **The tension homeostat** (`pacing.py`, already tracks cozy↔grim per turn) → nudge the scale toward
+   dread as danger rises, back toward calm as it decays. Automatic contextual mood.
+
+**The honest catch:** llama.cpp applies the control vector at **server launch**, not per request — so
+true per-turn scale modulation needs runtime control-vector adjustment (llama.cpp may not expose it;
+Primarch's `persona_vector.py` "served control vector" mechanism is the lead to investigate). So:
+
+- **Achievable now:** a **per-campaign baseline tone** — serve the tone vector at a scale matched to
+  the world's genre (set in serve.sh from config). The whole campaign's register matches its setting;
+  per-scene shifts ride on top via the prompt (`setting`/tension clauses).
+- **Frontier:** per-turn scale driven live by location + tension — the fully dynamic "tone follows the
+  scene." Needs a server that accepts a per-request control-vector scale.
