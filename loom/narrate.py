@@ -6,7 +6,7 @@ transcript only carries the last few beats of conversational flow.
 """
 from __future__ import annotations
 from pathlib import Path
-from . import llm, retrieve, transcript, state, pacing, threads, director, character, mechanics, referee, depth, player, setting, tone
+from . import llm, retrieve, transcript, state, pacing, threads, director, character, mechanics, referee, depth, player, setting, tone, undo
 from . import prompt_security as sec
 
 
@@ -22,6 +22,7 @@ def _context_block(nodes: list[dict], facts: dict) -> str:
 
 
 def turn(player_input: str, cfg: dict, tpath: Path, world: Path, spath: Path) -> str:
+    undo.snapshot(tpath, spath)                       # capture pre-turn state so the turn can be taken back
     transcript.append(tpath, "player", player_input)
 
     nodes = retrieve.retrieve(player_input, world, cfg)

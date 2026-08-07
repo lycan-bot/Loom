@@ -10,7 +10,7 @@ import json
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from . import config, canon, state, transcript, narrate, consolidate, llm, threads, imagine, guard, character, sleep, worldturn, player, generate, setting
+from . import config, canon, state, transcript, narrate, consolidate, llm, threads, imagine, guard, character, sleep, worldturn, player, generate, setting, undo
 
 STATIC = Path(__file__).resolve().parent / "static"
 
@@ -63,6 +63,7 @@ def make_handler(cfg: dict):
                     "canon": _graph(world)["nodes"],
                     "state": {k: v for k, v in state.load(spath).items() if not k.startswith("_")},
                     "location": state.load(spath).get("_location", ""),
+                    "can_undo": undo.can_undo(tpath),
                     "threads": [{"id": t.id, "question": t.question, "status": t.status,
                                  "readiness": round(t.readiness, 2)} for t in th
                                 if t.status != "resolved"],
@@ -126,6 +127,9 @@ def make_handler(cfg: dict):
                 except Exception:
                     world_pulse = []
                 return self._send(200, {"narrator": narration, "world": world_pulse})
+            if u.path == "/api/undo":
+                # take back the last turn — restores transcript, threads, tension, location
+                return self._send(200, {"undone": undo.undo(tpath, spath)})
             if u.path == "/api/consolidate":
                 lines = transcript.read_all(tpath)
                 if not lines:

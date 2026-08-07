@@ -83,6 +83,7 @@
     <form id="f">
       <input id="input" autocomplete="off" placeholder="What do you do?">
       <button id="send" type="submit">Send</button>
+      <button id="undo" class="ghost" type="button" title="Take back the last turn" disabled>↩ Undo</button>
       <button id="consolidate" class="ghost" type="button" title="Fold this session into canon">Consolidate</button>
       <button id="imagine" class="ghost" type="button" title="Dream a new thread from the canon">Imagine</button>
       <button id="sleep" class="ghost" type="button" title="Let the world turn while you're away">Sleep</button>
@@ -291,6 +292,7 @@ async function loadWorlds(){
 async function loadState(){
   const st=await (await fetch("/api/state")).json();
   await loadWorlds();
+  $("undo").disabled=!st.can_undo;
   $("model").textContent=st.model.replace(/^https?:\/\//,"");
   $("log").innerHTML="";
   for(const e of st.transcript) addTurn(e.role,e.text);
@@ -309,10 +311,20 @@ $("f").addEventListener("submit",async ev=>{
   try{
     const r=await fetch("/api/turn",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({input:t})});
     const j=await r.json();think.remove();
-    if(r.ok){addTurn("narrator",j.narrator);if(j.world&&j.world.length)addWorld(j.world);$("mdot").className="dot ok";await loadGraph();}
+    if(r.ok){addTurn("narrator",j.narrator);if(j.world&&j.world.length)addWorld(j.world);$("mdot").className="dot ok";$("undo").disabled=false;await loadGraph();}
     else{addTurn("sys","⚠ "+(j.error||"the narrator is silent")+"  (is ./serve.sh running?)");$("mdot").className="dot bad";}
   }catch(e){think.remove();addTurn("sys","⚠ "+e);$("mdot").className="dot bad";}
   $("send").disabled=false;$("input").focus();
+});
+
+$("undo").addEventListener("click",async()=>{
+  if(!confirm("Take back the last turn? This removes the last exchange and undoes its consequences."))return;
+  $("undo").disabled=true;
+  try{
+    const j=await (await fetch("/api/undo",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"})).json();
+    if(j.undone){await loadState();addTurn("sys","↩ last turn taken back.");}
+    else addTurn("sys","nothing to undo.");
+  }catch(e){addTurn("sys","⚠ "+e);}
 });
 
 $("consolidate").addEventListener("click",async()=>{

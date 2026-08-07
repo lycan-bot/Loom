@@ -16,12 +16,13 @@ Usage:
   python -m loom world                  play one world round — major NPCs take their turns
   python -m loom world-show on|off      toggle showing the world round each turn during play
   python -m loom mechanics on|off       toggle the optional dice layer (impartial d20)
+  python -m loom undo                    take back the last turn (also '/undo' while playing)
   python -m loom depth <0.0-1.0>        realness dial — 0 mirror (agrees) … 1 other (resists)
   python -m loom web [--port N]         browser UI (play + world map), default :8100
 """
 from __future__ import annotations
 import sys
-from . import config, narrate, consolidate, seal, transcript, canon, state, llm, threads, npc, imagine, guard, sleep, worldturn, generate
+from . import config, narrate, consolidate, seal, transcript, canon, state, llm, threads, npc, imagine, guard, sleep, worldturn, generate, undo
 
 
 def _paths(cfg):
@@ -45,6 +46,9 @@ def cmd_play(cfg):
         if line == "/canon":
             for n in canon.load_all(world):
                 print(f"  [[{n['name']}]] — {n['frontmatter'].get('kind', 'lore')}")
+            continue
+        if line in ("/undo", "/u"):
+            print("↩ last turn taken back.\n" if undo.undo(tpath, spath) else "nothing to undo.\n")
             continue
         try:
             print("\nnarrator ›", narrate.turn(line, cfg, tpath, world, spath), "\n")
@@ -301,6 +305,11 @@ def cmd_world_show(cfg, arg):
     print(f"world rounds {'SHOWN each turn during play' if on else 'hidden (they still run in the background)'}.")
 
 
+def cmd_undo(cfg):
+    tpath, _world, spath = _paths(cfg)
+    print("↩ took back the last turn." if undo.undo(tpath, spath) else "nothing to undo.")
+
+
 def cmd_npcs(cfg):
     _, world, spath = _paths(cfg)
     ds = npc.drives(world)
@@ -355,6 +364,8 @@ def main(argv=None):
         cmd_world(cfg)
     elif cmd == "world-show" and len(argv) > 1:
         cmd_world_show(cfg, argv[1])
+    elif cmd == "undo":
+        cmd_undo(cfg)
     else:
         print(__doc__)
 
