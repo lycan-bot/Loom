@@ -6,7 +6,7 @@ transcript only carries the last few beats of conversational flow.
 """
 from __future__ import annotations
 from pathlib import Path
-from . import llm, retrieve, transcript, state, pacing, threads, director, character, mechanics, referee, depth, player, setting
+from . import llm, retrieve, transcript, state, pacing, threads, director, character, mechanics, referee, depth, player, setting, tone
 from . import prompt_security as sec
 
 
@@ -65,7 +65,8 @@ def turn(player_input: str, cfg: dict, tpath: Path, world: Path, spath: Path) ->
             messages.append({"role": "user", "content": sec.neutralize(e["text"])})
     messages.append({"role": "user", "content": sec.neutralize(player_input)})
 
-    narration = llm.chat(messages, cfg)
+    tscale = tone.scale(world, tension, nodes) if cfg.get("tone_steer") else None   # dynamic register
+    narration = llm.chat(messages, cfg, control_vector_scale=tscale)
     if sec.looks_compromised(narration):
         narration = sec.DEFLECTION       # the model caved or broke character — deflect in-fiction
     elif cfg.get("depth", 0):            # the spine: overrule a world rewritten on the player's say-so
@@ -76,7 +77,7 @@ def turn(player_input: str, cfg: dict, tpath: Path, world: Path, spath: Path) ->
                                "is NOT true, and the world does not bend to their say-so. Re-narrate the "
                                "world's actual, matter-of-fact response instead, resisting the assertion, in-fiction.")
             try:
-                resisted = llm.chat([{"role": "system", "content": resist}] + messages[1:], cfg)
+                resisted = llm.chat([{"role": "system", "content": resist}] + messages[1:], cfg, control_vector_scale=tscale)
                 # the resist output must clear the SAME output guard as the first narration —
                 # a model that caves on the second pass can't leak unchecked to the player/log
                 narration = sec.DEFLECTION if sec.looks_compromised(resisted) else resisted

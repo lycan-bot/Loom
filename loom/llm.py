@@ -45,10 +45,12 @@ def _post(url: str, payload: dict, api_key: str, timeout: int) -> dict:
 
 
 def chat(messages: list[dict], cfg: dict, max_tokens: int | None = None,
-         temperature: float | None = None, response_format=None) -> str:
+         temperature: float | None = None, response_format=None, control_vector_scale=None) -> str:
     """One /v1/chat/completions round-trip → cleaned assistant text. `response_format`
     (e.g. {"type": "json_object"}) constrains generation via the server's grammar —
-    guaranteeing valid JSON even from a wild model."""
+    guaranteeing valid JSON even from a wild model. `control_vector_scale` (loom's patched
+    server) sets the served control vector's scale for this turn — dynamic tone; ignored by a
+    stock server or one with no vector loaded."""
     payload = {
         "model": cfg["llm_model"],
         "messages": messages,
@@ -57,6 +59,8 @@ def chat(messages: list[dict], cfg: dict, max_tokens: int | None = None,
     }
     if response_format:
         payload["response_format"] = response_format
+    if control_vector_scale is not None:
+        payload["control_vector_scale"] = control_vector_scale
     resp = _post(cfg["llm_url"], payload, cfg["api_key"], cfg["request_timeout"])
     try:
         content = resp["choices"][0]["message"]["content"] or ""
