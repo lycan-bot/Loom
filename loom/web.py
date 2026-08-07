@@ -10,7 +10,7 @@ import json
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from . import config, canon, state, transcript, narrate, consolidate, llm, threads, imagine, guard, character, sleep, worldturn
+from . import config, canon, state, transcript, narrate, consolidate, llm, threads, imagine, guard, character, sleep, worldturn, player
 
 STATIC = Path(__file__).resolve().parent / "static"
 
@@ -86,6 +86,8 @@ def make_handler(cfg: dict):
                 base = config.ROOT / cfg["campaigns_dir"]
                 names = sorted(p.name for p in base.iterdir() if (p / "world").is_dir()) if base.exists() else []
                 return self._send(200, {"campaigns": names, "active": cfg["campaign"]})
+            if u.path == "/api/player":
+                return self._send(200, player.card(world))
             return self._send(404, {"error": "not found"})
 
         def do_POST(self):
@@ -182,6 +184,13 @@ def make_handler(cfg: dict):
                 config.save({"campaign": name})
                 return self._send(200, {"active": name})
             # --- authoring (writes stay inside the campaign world by construction) ---
+            if u.path == "/api/player/save":
+                name = (body.get("name") or "").strip()
+                if not name:
+                    return self._send(400, {"error": "name required"})
+                player.save(world, name, role=body.get("role") or "", description=body.get("description") or "",
+                            wants=body.get("wants") or "", location=body.get("location") or "")
+                return self._send(200, {"ok": True, "player": player.card(world)})
             if u.path == "/api/node/save":
                 name = (body.get("name") or "").strip()
                 if not name:

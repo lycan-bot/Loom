@@ -15,13 +15,14 @@ from . import llm, canon, consolidate
 
 _JSON_RE = re.compile(r"\{[\s\S]*\}")
 
-_WORLD_KEYS = ("name", "premise", "age", "tech", "magic", "peoples", "tone", "body")
+_WORLD_KEYS = ("name", "premise", "genre", "age", "tech", "magic", "peoples", "tone", "body")
 _CHAR_KEYS = ("name", "role", "description", "voice", "wants", "bound", "location")
 
 _WORLD_PROMPT = """Invent a fresh, vivid setting for a story world%s. SURPRISE me — do not default to
 generic high-fantasy unless the roll genuinely lands there; reach for the unexpected. Decide concretely:
 - name: the world's name
 - premise: a one-sentence hook
+- genre: the story's genre / register (cosmic horror, noir, high fantasy, space opera, cyberpunk, mythic, cozy slice-of-life, …)
 - age: the era (bronze-age, feudal, age-of-sail, industrial, modern, far-future, post-collapse, …)
 - tech: the technology level and its flavor
 - magic: "none", or how magic works if it exists
@@ -94,8 +95,8 @@ def write_world(world_dir, world_card: dict, characters: list) -> None:
     wc = world_card
     body = "\n\n".join(p for p in (wc.get("premise", ""), wc.get("body", "")) if p) or "A new world."
     canon.write_node(world_dir, wc.get("name") or "The World", body, {
-        "kind": "lore",
-        **{k: wc[k] for k in ("age", "tech", "magic", "peoples", "tone") if wc.get(k)}})
+        "kind": "lore", "setting": "true",         # the world card — the register the narrator writes in
+        **{k: wc[k] for k in ("genre", "age", "tech", "magic", "peoples", "tone") if wc.get(k)}})
     for c in characters:
         fm = {"kind": "character"}
         for k in ("role", "voice", "wants", "bound", "location"):
