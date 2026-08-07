@@ -96,3 +96,34 @@ Two cheap experiments, cheapest first:
   behavioral lever.
 
 Do (a) to learn what "bounded length" feels like, then decide whether (b) is worth the extraction.
+
+---
+
+## Results — the brevity experiment (2026-08-07)
+
+The **pipeline is proven end to end**: `llama-cvector-generator` on the Mag-Mell GGUF over the Vulkan
+GPU (`steering/brevity_{positive,negative}.txt`, 20 matched terse↔verbose pairs, `--method pca`)
+extracts a 40-layer direction (`steering/brevity.gguf`, ~800KB) in a few minutes — **no CPU-hours**,
+unlike repeng. Served via `--control-vector-scaled brevity.gguf:<s> --control-vector-layer-range`.
+
+But the honest finding: **brevity is a WEAK axis to steer.** A fixed prompt swept:
+
+| scale (layers 12–28) | words | quality |
+|---|---|---|
+| 0 (baseline) | 265 | normal |
+| 1.0 | 230 | coherent, *mild* nudge |
+| 1.6 | — | **shatters** — a sentence, then blank-line collapse |
+| 2.0 (layers 18–30) | — | coherent start → `11 11 1 1…` degeneration |
+
+So at coherent scales the vector only trims ~15%, and pushing harder doesn't make it terser — it
+**breaks the model into degenerate loops.** The window between "mild" and "broken" is narrow, and
+tighter/later layers didn't sharpen it.
+
+**Why:** "write less" is not a clean semantic direction — verbosity is diffuse, entangled with the
+whole generation process, so steering it hard destabilizes coherence. Control vectors shine on strong
+**semantic/persona** axes (Primarch's verify↔sycophant steered beautifully); a stylistic *quantity*
+like length is exactly the wrong shape for them.
+
+**Takeaway:** vector-steered brevity is a *modest* tool (~15% at scale ≈1.0), not the strong lever we
+wanted. The better bet is **register/tone** (dread↔cozy, ornate↔spare) — a strong semantic axis where
+vectors excel, and which composes with the authored `genre`. That is the experiment worth running next.
