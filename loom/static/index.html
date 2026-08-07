@@ -194,13 +194,14 @@ async function editSettings(){
   const opt=(v,l)=>`<option value="${v}"${Math.abs((c.depth||0)-v)<0.01?" selected":""}>${l}</option>`;
   $("reader").innerHTML=`<div class="edit"><h2>⚙ Session</h2>`+
     `<label>realness depth (mirror → other)</label><select id="s_depth">`+opt(0,"0 · mirror (the world agrees)")+opt(0.5,"0.5 · in between")+opt(1,"1 · other (the world resists)")+`</select>`+
+    `<label>narrator wordiness</label><select id="s_len">`+(c.lengths||["terse","brief","vivid","lavish"]).map(l=>`<option${l===c.length?" selected":""}>${l}</option>`).join("")+`</select>`+
     `<label style="display:block;margin-top:8px"><input type="checkbox" id="s_world" ${c.world_rounds?"checked":""}> show the world round each turn (major NPCs take turns)</label>`+
     `<label style="display:block"><input type="checkbox" id="s_mech" ${c.mechanics?"checked":""}> dice — an impartial d20 on uncertain actions</label>`+
     `<div class="row"><button onclick="saveSettings()">Apply</button><button class="ghost" onclick="loadState()">Close</button></div></div>`;
 }
 async function saveSettings(){
   await fetch("/api/config",{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({depth:parseFloat($("s_depth").value),world_rounds:$("s_world").checked,mechanics:$("s_mech").checked})});
+    body:JSON.stringify({depth:parseFloat($("s_depth").value),world_rounds:$("s_world").checked,mechanics:$("s_mech").checked,length:$("s_len").value})});
   addTurn("sys","session settings applied.");await loadState();
 }
 async function delNode(name){

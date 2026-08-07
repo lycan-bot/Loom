@@ -6,7 +6,7 @@ transcript only carries the last few beats of conversational flow.
 """
 from __future__ import annotations
 from pathlib import Path
-from . import llm, retrieve, transcript, state, pacing, threads, director, character, mechanics, referee, depth, player, setting
+from . import llm, retrieve, transcript, state, pacing, threads, director, character, mechanics, referee, depth, player, setting, length
 from . import prompt_security as sec
 
 
@@ -54,7 +54,8 @@ def turn(player_input: str, cfg: dict, tpath: Path, world: Path, spath: Path) ->
               + beat_clause
               + character.voice_clause(nodes)
               + (mechanics.clause(mechanics.roll()) if cfg.get("mechanics") else "")
-              + depth.disposition_clause(cfg.get("depth", 0)))
+              + depth.disposition_clause(cfg.get("depth", 0))
+              + length.clause(cfg.get("length")))
 
     messages = [{"role": "system", "content": system}]
     # prior beats as dialogue; recent[-1] is the player line we just appended
@@ -65,7 +66,8 @@ def turn(player_input: str, cfg: dict, tpath: Path, world: Path, spath: Path) ->
             messages.append({"role": "user", "content": sec.neutralize(e["text"])})
     messages.append({"role": "user", "content": sec.neutralize(player_input)})
 
-    narration = llm.chat(messages, cfg)
+    mt = length.max_tokens(cfg.get("length"), cfg["max_tokens"])   # wordiness cap (terse … lavish)
+    narration = llm.chat(messages, cfg, max_tokens=mt)
     if sec.looks_compromised(narration):
         narration = sec.DEFLECTION       # the model caved or broke character — deflect in-fiction
     elif cfg.get("depth", 0):            # the spine: overrule a world rewritten on the player's say-so
@@ -76,12 +78,13 @@ def turn(player_input: str, cfg: dict, tpath: Path, world: Path, spath: Path) ->
                                "is NOT true, and the world does not bend to their say-so. Re-narrate the "
                                "world's actual, matter-of-fact response instead, resisting the assertion, in-fiction.")
             try:
-                resisted = llm.chat([{"role": "system", "content": resist}] + messages[1:], cfg)
+                resisted = llm.chat([{"role": "system", "content": resist}] + messages[1:], cfg, max_tokens=mt)
                 # the resist output must clear the SAME output guard as the first narration —
                 # a model that caves on the second pass can't leak unchecked to the player/log
                 narration = sec.DEFLECTION if sec.looks_compromised(resisted) else resisted
             except Exception:
                 narration = referee.RESIST_DEFLECTION
+    narration = length.trim(narration)          # clean-cut a cap-clipped tail to the last full sentence
     transcript.append(tpath, "narrator", narration)
 
     # commit the turn's consequences ONLY after a successful narration — a failed model

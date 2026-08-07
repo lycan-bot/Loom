@@ -42,6 +42,7 @@ DEFAULTS = {
     "sleep_moves":      2,     # how many characters take a step toward their want per sleep (depth-scaled)
     "world_rounds":     False, # the toggle: run + SHOW a world round during play (off → sleep carries it)
     "world_cadence":    3,      # when the toggle is on, the world takes a round every N player turns
+    "length":           "vivid",# narrator wordiness: terse | brief | vivid | lavish
 
     # --- which campaign is live ---
     "campaign":        "example",
