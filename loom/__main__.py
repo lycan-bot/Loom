@@ -17,12 +17,13 @@ Usage:
   python -m loom world-show on|off      toggle showing the world round each turn during play
   python -m loom mechanics on|off       toggle the optional dice layer (impartial d20)
   python -m loom undo                    take back the last turn (also '/undo' while playing)
+  python -m loom reputation              how the world regards you — standings + the deeds behind them
   python -m loom depth <0.0-1.0>        realness dial — 0 mirror (agrees) … 1 other (resists)
   python -m loom web [--port N]         browser UI (play + world map), default :8100
 """
 from __future__ import annotations
 import sys
-from . import config, narrate, consolidate, seal, transcript, canon, state, llm, threads, npc, imagine, guard, sleep, worldturn, generate, undo
+from . import config, narrate, consolidate, seal, transcript, canon, state, llm, threads, npc, imagine, guard, sleep, worldturn, generate, undo, reputation
 
 
 def _paths(cfg):
@@ -79,21 +80,27 @@ def cmd_consolidate(cfg, auto):
         return
     print(f"proposed: {len(proposals['nodes'])} node(s), {len(proposals['state'])} state, "
           f"{len(proposals['threads_new'])} new thread(s), {len(proposals['threads_resolved'])} resolved, "
-          f"{len(proposals['character_updates'])} character update(s)")
+          f"{len(proposals['character_updates'])} character update(s), "
+          f"{len(proposals.get('reputation') or [])} reputation shift(s)")
     if proposals.get("summary"):
         print(f"summary: {proposals['summary']}")
     print()
 
     def approve(kind, name, payload):
+        desc = name
+        if kind == "reputation" and isinstance(payload, dict):
+            d = payload.get("delta", 0)
+            desc = f"{name} ({'+' if d > 0 else ''}{d}: {payload.get('because', '')})"
         if auto:
-            print(f"  + {kind}: {name}")
+            print(f"  + {kind}: {desc}")
             return True
-        return input(f"  keep {kind} '{name}'? [y/N] ").strip().lower() in ("y", "yes")
+        return input(f"  keep {kind} '{desc}'? [y/N] ").strip().lower() in ("y", "yes")
 
     written = consolidate.apply(proposals, world, spath, approve)
     print(f"\nwrote {len(written['nodes'])} node(s), {len(written['state'])} state, "
           f"{len(written['threads'])} thread(s), {len(written['resolved'])} resolved, "
-          f"{len(written['dispositions'])} disposition(s), {len(written['locations'])} move(s).")
+          f"{len(written['dispositions'])} disposition(s), {len(written['locations'])} move(s), "
+          f"{len(written.get('reputation') or [])} reputation shift(s).")
     if cfg.get("imagine_on_consolidate"):
         cands = imagine.propose(world, spath.parent / "threads.json", cfg, n=2)
         if cands:
@@ -162,6 +169,11 @@ def cmd_status(cfg):
     print(f"canon     : {len(canon.load_all(world))} nodes")
     print(f"state     : {len([k for k in state.load(spath) if not k.startswith('_')])} facts")
     print(f"threads   : {len([t for t in threads.load(spath.parent / 'threads.json') if t.status != 'resolved'])} pending")
+    rep = reputation.load(state.load(spath))
+    if rep:
+        print("reputation:")
+        for who, e in sorted(rep.items()):
+            print(f"            {who}: {reputation.label(int(e.get('standing', 0) or 0))}")
 
 
 def cmd_mechanics(cfg, arg):
@@ -310,6 +322,20 @@ def cmd_undo(cfg):
     print("↩ took back the last turn." if undo.undo(tpath, spath) else "nothing to undo.")
 
 
+def cmd_reputation(cfg):
+    _, _world, spath = _paths(cfg)
+    rep = reputation.load(state.load(spath))
+    if not rep:
+        print("no reputation yet — the world hasn't formed an opinion of you. (it forms at consolidation.)")
+        return
+    print("how the world regards you:")
+    for who, e in sorted(rep.items()):
+        standing = int(e.get("standing", 0) or 0)
+        print(f"\n  {who}: {reputation.label(standing)} ({standing:+d})")
+        for deed in (e.get("log") or []):
+            print(f"      {deed}")
+
+
 def cmd_npcs(cfg):
     _, world, spath = _paths(cfg)
     ds = npc.drives(world)
@@ -366,6 +392,8 @@ def main(argv=None):
         cmd_world_show(cfg, argv[1])
     elif cmd == "undo":
         cmd_undo(cfg)
+    elif cmd == "reputation":
+        cmd_reputation(cfg)
     else:
         print(__doc__)
 

@@ -8,7 +8,7 @@ write→re-read collapse the Sigilus floor exists to prevent, in miniature).
 from __future__ import annotations
 import json, re
 from pathlib import Path
-from . import llm, canon, state, threads
+from . import llm, canon, state, threads, reputation
 
 _JSON_RE = re.compile(r"\{[\s\S]*\}")
 
@@ -61,6 +61,19 @@ def _normalize(proposals: dict) -> dict:
         if name and (disp or loc):
             updates.append({"name": name, "disposition": disp, "location": loc})
 
+    rep = []
+    for r in _dicts(proposals.get("reputation")):
+        who = _s(r.get("who")).strip()
+        if not who:
+            continue
+        try:
+            delta = int(r.get("delta"))
+        except (TypeError, ValueError):
+            continue
+        if delta == 0:                                    # a no-op delta isn't a reputation change
+            continue
+        rep.append({"who": who, "delta": max(-3, min(3, delta)), "because": _s(r.get("because")).strip()})
+
     resolved_raw = proposals.get("threads_resolved")
     return {
         "nodes": nodes,
@@ -68,6 +81,7 @@ def _normalize(proposals: dict) -> dict:
         "threads_new": threads_new,
         "threads_resolved": [r for r in resolved_raw if isinstance(r, str)] if isinstance(resolved_raw, list) else [],
         "character_updates": updates,
+        "reputation": rep,
     }
 
 
@@ -113,6 +127,7 @@ Respond with ONE json object:
   "threads_new":      [{"question": "a NEW open dramatic question this session RAISED", "entities": ["canon names it involves"], "seed": "a subtle detail to foreshadow it later", "payoff": "what answering it might look like"}],
   "threads_resolved": ["<id of an open thread the session ANSWERED, if any>"],
   "character_updates": [{"name": "an existing character", "disposition": "how they now feel toward the player, ONLY if it clearly shifted this session", "location": "the place they are now, ONLY if they moved this session"}],
+  "reputation": [{"who": "a faction, group, or notable person", "delta": -1, "because": "the DEED this session that moved their regard for the player (a small integer -3..3; negative = worse)"}],
   "summary": "one sentence on what changed"
 }
 Only open a thread for a genuine NEW dramatic question the session actually raised; only resolve \
@@ -148,7 +163,7 @@ def propose(cfg: dict, session_lines: list[dict], existing_threads=None) -> dict
         raise ValueError(f"no JSON object in consolidation output: {raw[:200]}")
     data = _loads_lenient(m.group(0))
     for key, default in (("nodes", []), ("state", {}), ("threads_new", []),
-                         ("threads_resolved", []), ("character_updates", []), ("summary", "")):
+                         ("threads_resolved", []), ("character_updates", []), ("reputation", []), ("summary", "")):
         data.setdefault(key, default)
     return data
 
@@ -164,7 +179,7 @@ def apply(proposals: dict, world: Path, state_path: Path, approve) -> dict:
     """
     p = _normalize(proposals)
     written: dict[str, list] = {"nodes": [], "state": [], "threads": [], "resolved": [],
-                                "dispositions": [], "locations": []}
+                                "dispositions": [], "locations": [], "reputation": []}
     for node in p["nodes"]:
         name, body, fields = node["name"], node["body"], node["fields"]
         if not approve("node", name, node):
@@ -193,6 +208,16 @@ def apply(proposals: dict, world: Path, state_path: Path, approve) -> dict:
             st[key] = val
             written["state"].append(key)
             changed = True
+    # reputation: shift each blessed standing (the diode gates each deed) and log the deed that moved
+    # it — stored in the same state under _rep so it commits atomically with the rest of the state
+    rep = reputation.load(st)
+    for r in p["reputation"]:
+        if approve("reputation", r["who"], r):
+            reputation.apply_delta(rep, r["who"], r["delta"], r["because"])
+            written["reputation"].append(r["who"])
+            changed = True
+    if rep:
+        st["_rep"] = rep
     if changed:
         state.save(state_path, st)
 

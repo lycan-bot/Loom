@@ -238,9 +238,16 @@ async function renderReader(st){
   let ck="";
   try{const g=await (await fetch("/api/check")).json();
       if(g.findings&&g.findings.length) ck=`<div class="warn">⚠ ${g.findings.length} continuity note(s) — run 'loom check'</div>`;}catch(e){}
+  const rep=(st.reputation||[]).filter(r=>r&&r.who);
+  const repHtml=rep.map(r=>{
+    const col=r.standing>0?"#7fd18a":r.standing<0?"#d67f7f":"var(--muted)";
+    const why=(r.log&&r.log.length)?r.log[r.log.length-1]:"";
+    return `<div style="font-size:12px" title="${esc(why)}"><b style="color:${col}">${esc(r.label)}</b> · ${esc(r.who)}</div>`;
+  }).join("");
   $("reader").innerHTML=
     `<div class="kind">continuity</div><div class="facts">`+(f||`<span style="color:var(--muted)">no facts yet</span>`)+`</div>`+
     (st.location?`<div class="kind" style="margin-top:10px">you are at</div><div style="color:var(--accent)">${esc(st.location)}</div>`:"")+
+    (rep.length?`<div class="kind" style="margin-top:12px">how the world regards you</div>`+repHtml:"")+
     `<div class="kind" style="margin-top:14px">the plan · <a class="addlink" onclick="addThread()">＋ thread</a></div>`+
     (plan||`<span style="color:var(--muted);font-size:12px">nothing ripening yet</span>`)+ck;
 }
@@ -339,11 +346,14 @@ $("consolidate").addEventListener("click",async()=>{
   const disp=cu.filter(c=>c.disposition).map(c=>c.name);
   const moveNames=cu.filter(c=>c.location).map(c=>c.name);
   const moves=cu.filter(c=>c.location).map(c=>`${c.name} → ${esc(String(c.location))}`);
-  if(!names.length&&!stateKeys.length&&!tnew.length&&!tres.length&&!cu.length){addTurn("sys","nothing new to fold in.");return;}
-  const msg=`Fold into canon?\n\ncanon: ${names.join(", ")||"—"}\nstate: ${stateKeys.join(", ")||"—"}\nnew threads: ${tnew.join("  |  ")||"—"}\nresolved: ${tres.join(", ")||"—"}\ndispositions: ${disp.join(", ")||"—"}\nmoves: ${moves.join(", ")||"—"}\n\n${p.summary||""}`;
+  const rep=(p.reputation||[]).filter(r=>r&&r.who);
+  const repNames=rep.map(r=>r.who);
+  const repShow=rep.map(r=>`${r.who} ${r.delta>0?"+"+r.delta:r.delta}${r.because?" ("+r.because+")":""}`);
+  if(!names.length&&!stateKeys.length&&!tnew.length&&!tres.length&&!cu.length&&!rep.length){addTurn("sys","nothing new to fold in.");return;}
+  const msg=`Fold into canon?\n\ncanon: ${names.join(", ")||"—"}\nstate: ${stateKeys.join(", ")||"—"}\nnew threads: ${tnew.join("  |  ")||"—"}\nresolved: ${tres.join(", ")||"—"}\ndispositions: ${disp.join(", ")||"—"}\nmoves: ${moves.join(", ")||"—"}\nreputation: ${repShow.join("  |  ")||"—"}\n\n${p.summary||""}`;
   if(!confirm(msg))return;
   await fetch("/api/consolidate/apply",{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({proposals:p,approved_nodes:names,approved_state:stateKeys,approved_threads:tnew,approved_resolved:tres,approved_dispositions:disp,approved_locations:moveNames})});
+    body:JSON.stringify({proposals:p,approved_nodes:names,approved_state:stateKeys,approved_threads:tnew,approved_resolved:tres,approved_dispositions:disp,approved_locations:moveNames,approved_reputation:repNames})});
   addTurn("sys",`folded: +${names.length} node(s), +${tnew.length} thread(s), ${tres.length} resolved.`);
   await loadState();
 });

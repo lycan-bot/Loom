@@ -10,7 +10,7 @@ import json
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from . import config, canon, state, transcript, narrate, consolidate, llm, threads, imagine, guard, character, sleep, worldturn, player, generate, setting, undo
+from . import config, canon, state, transcript, narrate, consolidate, llm, threads, imagine, guard, character, sleep, worldturn, player, generate, setting, undo, reputation
 
 STATIC = Path(__file__).resolve().parent / "static"
 
@@ -57,12 +57,18 @@ def make_handler(cfg: dict):
                 return self._send(500, {"error": f"bad config: {e}"})
             if u.path == "/api/state":
                 th = threads.load(spath.parent / "threads.json")
+                st_all = state.load(spath)
+                rep = reputation.load(st_all)
                 return self._send(200, {
                     "campaign": cfg["campaign"],
                     "model": cfg["llm_url"],
                     "canon": _graph(world)["nodes"],
-                    "state": {k: v for k, v in state.load(spath).items() if not k.startswith("_")},
-                    "location": state.load(spath).get("_location", ""),
+                    "state": {k: v for k, v in st_all.items() if not k.startswith("_")},
+                    "location": st_all.get("_location", ""),
+                    "reputation": [{"who": w, "standing": int(e.get("standing", 0) or 0),
+                                    "label": reputation.label(int(e.get("standing", 0) or 0)),
+                                    "log": [s for s in (e.get("log") or []) if isinstance(s, str)]}
+                                   for w, e in sorted(rep.items()) if isinstance(e, dict)],
                     "can_undo": undo.can_undo(tpath),
                     "threads": [{"id": t.id, "question": t.question, "status": t.status,
                                  "readiness": round(t.readiness, 2)} for t in th
@@ -149,7 +155,8 @@ def make_handler(cfg: dict):
                       "thread": set(body.get("approved_threads") or []),
                       "resolve": set(body.get("approved_resolved") or []),
                       "disposition": set(body.get("approved_dispositions") or []),
-                      "location": set(body.get("approved_locations") or [])}
+                      "location": set(body.get("approved_locations") or []),
+                      "reputation": set(body.get("approved_reputation") or [])}
                 try:
                     written = consolidate.apply(
                         proposals, world, spath,
