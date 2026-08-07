@@ -7,6 +7,7 @@ Usage:
   python -m loom seal-check             verify nothing has leaked past the wall
   python -m loom check                  continuity guard — flag canon/plan inconsistencies
   python -m loom new <name>             create a new campaign
+  python -m loom generate [seed…]       roll a fresh world + starting cast (into the live campaign)
   python -m loom worlds                 list campaigns (the shelf)
   python -m loom use <name>             switch the active campaign
   python -m loom npcs                   sync character drives into relational threads
@@ -20,7 +21,7 @@ Usage:
 """
 from __future__ import annotations
 import sys
-from . import config, narrate, consolidate, seal, transcript, canon, state, llm, threads, npc, imagine, guard, sleep, worldturn
+from . import config, narrate, consolidate, seal, transcript, canon, state, llm, threads, npc, imagine, guard, sleep, worldturn, generate
 
 
 def _paths(cfg):
@@ -234,6 +235,47 @@ def cmd_sleep(cfg, auto=False):
         print("nothing came due; the world waits as you left it.")
 
 
+def cmd_generate(cfg, seed="", n=3, auto=False):
+    _, world, _ = _paths(cfg)
+    existing = canon.load_all(world)
+    print("rolling a world…" + (f"  (seed: {seed})" if seed else ""))
+    try:
+        wc = generate.world(cfg, seed)
+    except llm.LLMError as e:
+        print(f"[!] {e}  (is ./serve.sh running?)")
+        return
+    if not wc.get("name") and not wc.get("body"):
+        print("the roll came up empty — try again.")
+        return
+    print(f"\n  ✦ {wc.get('name') or '(unnamed)'} — {wc.get('premise', '')}")
+    for k in ("age", "tech", "magic", "peoples", "tone"):
+        if wc.get(k):
+            print(f"    · {k}: {wc[k]}")
+    if wc.get("body"):
+        print(f"\n  {wc['body']}")
+    print("\nrolling a cast…")
+    try:
+        cast = generate.cast(cfg, wc, n)
+    except llm.LLMError:
+        cast = []
+    for c in cast:
+        loc = f"  @ {c['location']}" if c.get("location") else ""
+        print(f"\n  • {c['name']} — {c.get('role', '')}{loc}")
+        if c.get("wants"):
+            print(f"      wants {c['wants']}" + (f", held by {c['bound']}" if c.get("bound") else ""))
+        if c.get("description"):
+            print(f"      {c['description']}")
+    if existing:
+        print(f"\n[!] campaign '{cfg['campaign']}' already holds {len(existing)} node(s) — "
+              "writing will add this world alongside them ('loom new <name>' first for a clean slate).")
+    ok = auto or input("\nwrite this world into the campaign? [y/N] ").strip().lower() in ("y", "yes")
+    if not ok:
+        print("discarded — nothing written.")
+        return
+    generate.write_world(world, wc, cast)
+    print(f"wrote the world + {len(cast)} character(s) into '{cfg['campaign']}'. 'loom play' to begin.")
+
+
 def cmd_world(cfg):
     _, world, _ = _paths(cfg)
     if float(cfg.get("depth", 0) or 0) <= 0:
@@ -307,6 +349,8 @@ def main(argv=None):
         cmd_imagine(cfg, auto="--yes" in argv)
     elif cmd == "sleep":
         cmd_sleep(cfg, auto="--yes" in argv)
+    elif cmd == "generate":
+        cmd_generate(cfg, seed=" ".join(a for a in argv[1:] if a != "--yes"), auto="--yes" in argv)
     elif cmd == "world":
         cmd_world(cfg)
     elif cmd == "world-show" and len(argv) > 1:
