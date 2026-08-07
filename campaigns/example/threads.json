@@ -3,52 +3,36 @@
     "id": "lighthouse-dark",
     "question": "What put out the light on the mole, and why does no one who rows out come back the same?",
     "kind": "question",
-    "status": "ready",
-    "readiness": 1.0,
-    "entities": [
-      "The Lighthouse",
-      "Fisherfolk",
-      "The World"
-    ],
-    "clock": null,
+    "status": "dormant",
+    "readiness": 0.0,
+    "entities": ["The Lighthouse", "Fisherfolk", "The World"],
     "seed": "the lighthouse's dark eye seems to hold on you a beat too long, and the water near the mole lies unnaturally still",
     "payoff": "a fragment of what happened out there surfaces — a name, a kept object, or a witness whose fear says more than words",
     "stages": [
       "a first small fragment surfaces — a name half-remembered, or an object someone kept from that night",
       "a witness's account, partial and fearful, of what they saw the light do before it died",
       "the truth of what put the lighthouse out, and what it has cost the town to keep its silence"
-    ],
-    "stage": 0
+    ]
   },
   {
     "id": "fisherfolk-trust",
     "question": "Will the wary fisherfolk come to trust the nameless stranger?",
     "kind": "question",
-    "status": "ready",
-    "readiness": 1.0,
-    "entities": [
-      "Fisherfolk",
-      "The Dockhand"
-    ],
-    "clock": null,
+    "status": "dormant",
+    "readiness": 0.0,
+    "entities": ["Fisherfolk", "The Dockhand"],
     "seed": "a fisher's glance lingers a moment longer than caution alone would explain",
-    "payoff": "someone offers a small confidence, or asks a small favor that only a trusted outsider could do",
-    "stages": [],
-    "stage": 0
+    "payoff": "someone offers a small confidence, or asks a small favor that only a trusted outsider could do"
   },
   {
     "id": "coming-storm",
     "question": "A hard autumn storm is making for the coast.",
     "kind": "clock",
-    "status": "resolved",
-    "readiness": 1.0,
-    "entities": [
-      "The World"
-    ],
-    "clock": 0,
+    "status": "ripening",
+    "readiness": 0.3,
+    "entities": ["The World"],
+    "clock": 4,
     "seed": "the gulls have gone quiet and the air tastes faintly of iron",
-    "payoff": "the wind rises and the first heavy rain drives in off the sea; boats are hauled up and doors barred",
-    "stages": [],
-    "stage": 0
+    "payoff": "the wind rises and the first heavy rain drives in off the sea; boats are hauled up and doors barred"
   }
 ]
