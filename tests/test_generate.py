@@ -42,26 +42,40 @@ class WorldRollTest(unittest.TestCase):
 
 
 class CastRollTest(unittest.TestCase):
-    def test_cast_parsed_and_filtered(self):
-        payload = ('{"characters":[{"name":"Sera","role":"ember-reader","wants":"to save her city"},'
-                   '"nope",{"role":"nameless one"}]}')
+    def test_cast_is_one_per_call_with_dedup(self):
+        # each character is its own small call (reliable JSON); a repeated name is dropped
+        payloads = iter(['{"name":"Sera","role":"ember-reader"}',
+                         '{"name":"Sera","role":"a duplicate"}',
+                         '{"name":"Kade","role":"a sailor"}'])
         orig = llm.complete
-        llm.complete = lambda *a, **k: payload
+        llm.complete = lambda *a, **k: next(payloads)
         try:
             cs = generate.cast(_CFG, {"name": "Emberfall"}, 3)
         finally:
             llm.complete = orig
-        self.assertEqual([c["name"] for c in cs], ["Sera"])          # non-dict + nameless dropped
+        self.assertEqual([c["name"] for c in cs], ["Sera", "Kade"])   # the second 'Sera' deduped out
         self.assertEqual(cs[0]["role"], "ember-reader")
 
-    def test_non_list_characters_is_empty(self):
+    def test_nameless_character_is_skipped(self):
         orig = llm.complete
-        llm.complete = lambda *a, **k: '{"characters":5}'
+        llm.complete = lambda *a, **k: '{"role":"a nameless one"}'    # no name → not a character
         try:
             cs = generate.cast(_CFG, {}, 2)
         finally:
             llm.complete = orig
         self.assertEqual(cs, [])
+
+    def test_malformed_json_fails_soft(self):
+        # the live wild model emits slightly-broken JSON (a missing comma) despite response_format —
+        # it must degrade to empty, never crash (this is the bug the live Mag-Mell run surfaced)
+        orig = llm.complete
+        llm.complete = lambda *a, **k: '{"name":"A" "role":"x"}'   # missing comma (single-char call)
+        try:
+            self.assertEqual(generate.cast(_CFG, {}, 2), [])
+            llm.complete = lambda *a, **k: '{"name":"X" "premise":"y"}'              # missing comma
+            self.assertEqual(generate.world(_CFG)["name"], "")
+        finally:
+            llm.complete = orig
 
 
 class WriteWorldTest(unittest.TestCase):

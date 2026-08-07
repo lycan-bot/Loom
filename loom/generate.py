@@ -11,7 +11,7 @@ output is grammar-valid JSON but still sanitized (a bad field is dropped, never 
 from __future__ import annotations
 import json
 import re
-from . import llm, canon
+from . import llm, canon, consolidate
 
 _JSON_RE = re.compile(r"\{[\s\S]*\}")
 
@@ -32,14 +32,13 @@ generic high-fantasy unless the roll genuinely lands there; reach for the unexpe
 Respond with ONE json object having exactly those keys.
 """
 
-_CAST_PROMPT = """Here is a story world:
+_CHAR_PROMPT = """Here is a story world:
 %s
-
-Invent %d distinct CHARACTERS who live in it — each fitting its age, tech, magic, and peoples. For
-each decide: name, role (who/what they are, short), description (a sentence or two), voice (how they
-speak), wants (what they are after), bound (a vow/fear/debt that holds them back), location (where
-they are). Make them varied, and give them wants that could bring them into each other's paths.
-Respond with ONE json object: {"characters": [{"name","role","description","voice","wants","bound","location"}, …]}
+%s
+Invent ONE character who lives in it, fitting its age, tech, magic, and peoples. Decide: name, role
+(who/what they are, short), description (a sentence or two), voice (how they speak), wants (what they
+are after), bound (a vow/fear/debt that holds them back), location (where they are). Respond with ONE
+json object with exactly those keys.
 """
 
 
@@ -48,11 +47,20 @@ def _s(x) -> str:
     return x.strip() if isinstance(x, str) else ""
 
 
-def _ask(cfg, prompt, max_tokens, temperature):
+def _ask(cfg, prompt, max_tokens, temperature) -> dict:
+    """One JSON round-trip, FAIL-SOFT. response_format json_object is NOT hard-enforced by every
+    server/model, so a wild model can still emit slightly-malformed JSON (a missing comma, a
+    truncation). Try lenient repair, then degrade to {} — a bad roll yields nothing, never a crash."""
     raw = llm.complete(prompt, cfg, max_tokens=max_tokens, temperature=temperature,
                        response_format={"type": "json_object"})
     m = _JSON_RE.search(raw)
-    return json.loads(m.group(0)) if m else {}
+    if not m:
+        return {}
+    try:
+        data = consolidate._loads_lenient(m.group(0))     # repairs a truncated object
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}                                          # unrepairable garble → empty, retry
 
 
 def world(cfg, seed: str = "") -> dict:
@@ -65,16 +73,18 @@ def world(cfg, seed: str = "") -> dict:
 
 
 def cast(cfg, world_card: dict, n: int = 3) -> list:
-    """Roll n character cards that fit a world (list of dicts). Writes nothing."""
+    """Roll n character cards that fit a world (list of dicts). Writes nothing.
+
+    ONE character per call: a small object parses reliably from a wild model, where a big
+    all-at-once cast JSON keeps malforming. Each call is told who's already been made, for variety."""
     desc = "\n".join(f"{k}: {v}" for k, v in world_card.items() if v)
-    data = _ask(cfg, _CAST_PROMPT % (desc, max(1, int(n))), 900, 0.9)
-    chars = data.get("characters") if isinstance(data, dict) else None
-    out = []
-    for c in (chars if isinstance(chars, list) else []):
-        if not isinstance(c, dict):
-            continue
-        card = {k: _s(c.get(k)) for k in _CHAR_KEYS}
-        if card["name"]:
+    out, seen = [], set()
+    for _ in range(max(1, int(n))):
+        avoid = (f"(Already in the story, do not reuse: {', '.join(sorted(seen))}.)\n" if seen else "")
+        card = {k: _s(v) for k, v in _ask(cfg, _CHAR_PROMPT % (desc, avoid), 400, 0.9).items()}
+        card = {k: card.get(k, "") for k in _CHAR_KEYS}
+        if card["name"] and card["name"].lower() not in seen:
+            seen.add(card["name"].lower())
             out.append(card)
     return out
 
