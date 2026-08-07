@@ -137,8 +137,19 @@ def maybe_round(cfg, world, state_path) -> list:
     st = state.load(state_path)
     n = int(st.get("_wturn", 0) or 0) + 1
     st["_wturn"] = n
-    state.save(state_path, st)
     cadence = max(1, int(cfg.get("world_cadence", 3) or 3))
     if n % cadence != 0:                                  # the world takes a round every `cadence` turns
+        state.save(state_path, st)
         return []
-    return run(cfg, world)["turns"]
+    turns = run(cfg, world)["turns"]
+    # co-located routing: a turn AT the player's current place folds into their SCENE (a 'nearby'
+    # note narrate weaves into the next narration), rather than a detached 'meanwhile' pulse. The
+    # rest — turns elsewhere in the world — stay the pulse.
+    loc = str(st.get("_location", "")).strip().lower()
+    here = [t for t in turns if loc and t.get("where", "").strip().lower() == loc]
+    if here:
+        note = " ".join(t["beat"] for t in here)
+        prior = st.get("_nearby", "")
+        st["_nearby"] = (prior + " " + note).strip() if prior else note
+    state.save(state_path, st)
+    return [t for t in turns if t not in here]

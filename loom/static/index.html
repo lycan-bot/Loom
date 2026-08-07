@@ -239,6 +239,7 @@ async function renderReader(st){
       if(g.findings&&g.findings.length) ck=`<div class="warn">⚠ ${g.findings.length} continuity note(s) — run 'loom check'</div>`;}catch(e){}
   $("reader").innerHTML=
     `<div class="kind">continuity</div><div class="facts">`+(f||`<span style="color:var(--muted)">no facts yet</span>`)+`</div>`+
+    (st.location?`<div class="kind" style="margin-top:10px">you are at</div><div style="color:var(--accent)">${esc(st.location)}</div>`:"")+
     `<div class="kind" style="margin-top:14px">the plan · <a class="addlink" onclick="addThread()">＋ thread</a></div>`+
     (plan||`<span style="color:var(--muted);font-size:12px">nothing ripening yet</span>`)+ck;
 }
