@@ -1,0 +1,92 @@
+diff --git a/tools/server/server-context.cpp b/tools/server/server-context.cpp
+index 20e9325..1ec2952 100644
+--- a/tools/server/server-context.cpp
++++ b/tools/server/server-context.cpp
+@@ -895,6 +895,12 @@ private:
+ 
+     llama_context * ctx_tgt = nullptr;
+ 
++    // loom: the control vector kept at UNIT scale, so we can re-apply it at any scale per request
++    common_control_vector_data cvec_base;
++    int  cvec_il_start = 0;
++    int  cvec_il_end   = 0;
++    bool has_cvec      = false;
++
+     server_batch batch;
+ 
+     llama_model_ptr model_dft;
+@@ -1169,6 +1175,22 @@ private:
+             return false;
+         }
+ 
++        // loom: keep the control vector's UNIT-scale data so a request can re-apply it at any absolute
++        // scale (dynamic tone). Loaded with strength 1.0 regardless of the launch --control-vector scale.
++        if (!params_base.control_vectors.empty()) {
++            auto infos = params_base.control_vectors;
++            for (auto & inf : infos) inf.strength = 1.0f;
++            cvec_base = common_control_vector_load(infos);
++            if (cvec_base.n_embd != -1) {
++                cvec_il_start = params_base.control_vector_layer_start;
++                cvec_il_end   = params_base.control_vector_layer_end <= 0
++                                    ? llama_model_n_layer(model_tgt) : params_base.control_vector_layer_end;
++                has_cvec = true;
++                SRV_INF("loom: control vector kept for per-request scaling (n_embd=%d, layers %d-%d)\n",
++                        cvec_base.n_embd, cvec_il_start, cvec_il_end);
++            }
++        }
++
+         vocab = llama_model_get_vocab(model_tgt);
+ 
+         n_ctx = llama_n_ctx(ctx_tgt);
+@@ -1756,6 +1778,15 @@ private:
+             slot.lora = params_base.lora_adapters;
+         }
+ 
++        // loom: re-apply the control vector at this request's scale before generation (dynamic tone).
++        // Safe here because the server runs --parallel 1 (one active generation on ctx_tgt at a time).
++        if (has_cvec && task.params.has_cvec_scale) {
++            std::vector<float> scaled = cvec_base.data;
++            const float f = task.params.cvec_scale;
++            for (auto & x : scaled) { x *= f; }
++            llama_set_adapter_cvec(ctx_tgt, scaled.data(), scaled.size(), cvec_base.n_embd, cvec_il_start, cvec_il_end);
++        }
++
+         // if using alora, make sure it's only a single one requested and active
+         size_t alora_invocation_start = task.tokens.size();
+         if (lora_all_alora(slot.lora)) {
+diff --git a/tools/server/server-schema.cpp b/tools/server/server-schema.cpp
+index 07a842b..1774151 100644
+--- a/tools/server/server-schema.cpp
++++ b/tools/server/server-schema.cpp
+@@ -231,6 +231,15 @@ std::vector<std::unique_ptr<field>> make_llama_cmpl_schema(const common_params &
+             ctx.params.lora = parse_lora_request(lora);
+         }));
+ 
++    // loom: per-request control-vector scale — re-applies the served control vector at this absolute
++    // scale before generation (dynamic tone; requires --parallel 1). Absent keeps the launch scale.
++    add((new field_json("control_vector_scale"))
++        ->set_desc("Per-request control-vector scale (loom dynamic tone; requires --parallel 1)")
++        ->set_handler([&](field_eval_context & ctx, const json & data) {
++            ctx.params.cvec_scale = json_value(data, "control_vector_scale", 1.0f);
++            ctx.params.has_cvec_scale = true;
++        }));
++
+     // sequence breakers for DRY
+     // Currently, this is not compatible with TextGen WebUI, Koboldcpp and SillyTavern format
+     // Ref: https://github.com/oobabooga/text-generation-webui/blob/d1af7a41ade7bd3c3a463bfa640725edb818ebaf/extensions/openai/typing.py#L39
+diff --git a/tools/server/server-task.h b/tools/server/server-task.h
+index 293bdf0..539f3a6 100644
+--- a/tools/server/server-task.h
++++ b/tools/server/server-task.h
+@@ -67,6 +67,11 @@ struct task_params {
+ 
+     std::map<int, float> lora; // mapping adapter ID -> scale
+ 
++    // loom: per-request control-vector scale (dynamic tone). Re-applies the served control vector at
++    // this ABSOLUTE scale before generation; safe under --parallel 1. Absent = keep the launch scale.
++    bool  has_cvec_scale = false;
++    float cvec_scale     = 1.0f;
++
+     std::vector<std::string> antiprompt;
+     std::vector<std::string> response_fields;
+ 
