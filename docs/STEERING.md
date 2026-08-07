@@ -168,5 +168,14 @@ Primarch's `persona_vector.py` "served control vector" mechanism is the lead to 
 - **Achievable now:** a **per-campaign baseline tone** — serve the tone vector at a scale matched to
   the world's genre (set in serve.sh from config). The whole campaign's register matches its setting;
   per-scene shifts ride on top via the prompt (`setting`/tension clauses).
-- **Frontier:** per-turn scale driven live by location + tension — the fully dynamic "tone follows the
-  scene." Needs a server that accepts a per-request control-vector scale.
+- **Frontier — BUILT ★ (2026-08-07):** per-turn scale driven live by location + tension, the fully
+  dynamic "tone follows the scene." loom got its **own patched llama.cpp** (`../loom-llama.cpp`,
+  `patches/dynamic-control-vector-scale.patch`) adding a per-request `control_vector_scale` — the
+  vector is kept at unit scale and re-applied via `llama_set_adapter_cvec` before each generation,
+  safe because the server runs `--parallel 1`. `tone.py` maps genre + location `tone:` + the tension
+  homeostat → the scale; `narrate` sends it each turn (gated by `tone_steer`). Proven live end to
+  end: same world/session/server, the Hearth read warm (−3.7), the Blighted Fen read grim (+1.3), no
+  restart. Run it: `VECTOR=steering/tone.gguf ./serve.sh` + `tone_steer=true`.
+
+  ⚠ The patch is only safe under `--parallel 1` (one active generation on the shared context);
+  serve.sh sets that. A `--parallel >1` server would race the re-applied vector.
