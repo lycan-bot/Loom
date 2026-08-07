@@ -69,6 +69,54 @@ def chat(messages: list[dict], cfg: dict, max_tokens: int | None = None,
     return strip_think_blocks(content)
 
 
+def chat_stream(messages: list[dict], cfg: dict, max_tokens: int | None = None,
+                temperature: float | None = None, control_vector_scale=None):
+    """Stream a /v1/chat/completions call (SSE) — yields assistant text deltas as the model produces
+    them. The caller accumulates and applies strip_think_blocks on the full text at the end (a think
+    block can't be reliably stripped mid-stream). Raises LLMError before the first yield if the
+    server is unreachable; a mid-stream drop ends the generator (the caller commits what it has)."""
+    payload = {
+        "model": cfg["llm_model"],
+        "messages": messages,
+        "max_tokens": max_tokens or cfg["max_tokens"],
+        "temperature": cfg["temperature"] if temperature is None else temperature,
+        "stream": True,
+    }
+    if control_vector_scale is not None:
+        payload["control_vector_scale"] = control_vector_scale
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        cfg["llm_url"], data=data, method="POST",
+        headers={"Content-Type": "application/json", "Accept": "text/event-stream",
+                 "Authorization": f"Bearer {cfg['api_key']}"})
+    try:
+        resp = urllib.request.urlopen(req, timeout=cfg["request_timeout"])
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", "replace")[:300]
+        raise LLMError(f"HTTP {e.code} from {cfg['llm_url']}: {body}")
+    except urllib.error.URLError as e:
+        raise LLMError(f"could not reach model server at {cfg['llm_url']} ({e.reason}). "
+                       f"Is llama-server running?")
+    except Exception as e:
+        raise LLMError(f"model call failed: {e}")
+    try:
+        for raw in resp:
+            line = raw.decode("utf-8", "replace").strip()
+            if not line.startswith("data:"):
+                continue
+            chunk = line[5:].strip()
+            if chunk == "[DONE]":
+                break
+            try:
+                delta = json.loads(chunk)["choices"][0]["delta"].get("content")
+            except (KeyError, IndexError, TypeError, ValueError):
+                continue
+            if delta:
+                yield delta
+    finally:
+        resp.close()
+
+
 def complete(prompt: str, cfg: dict, system: str | None = None, **kw) -> str:
     messages: list[dict] = []
     if system:

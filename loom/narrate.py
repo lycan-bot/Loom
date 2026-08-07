@@ -21,7 +21,20 @@ def _context_block(nodes: list[dict], facts: dict) -> str:
     return "\n\n".join(parts) if parts else "(the world is blank — this is the opening scene)"
 
 
-def turn(player_input: str, cfg: dict, tpath: Path, world: Path, spath: Path) -> str:
+class _Ctx:
+    """Everything a turn needs between generation and commit — built by _prepare, consumed by
+    _finalize. Lets the streaming and non-streaming paths share identical setup + commit logic
+    (only HOW the first-pass text is produced differs), so the guard/referee/diode live in one place."""
+    __slots__ = ("cfg", "tpath", "world", "spath", "player_input", "messages", "system",
+                 "tscale", "canon_raw", "beat", "th_list", "thpath", "tension", "scene_place")
+
+    def __init__(self, **kw):
+        for k in self.__slots__:
+            setattr(self, k, kw.get(k))
+
+
+def _prepare(player_input: str, cfg: dict, tpath: Path, world: Path, spath: Path) -> "_Ctx":
+    """Snapshot for undo, record the player line, and build the prompt + the commit context."""
     undo.snapshot(tpath, spath)                       # capture pre-turn state so the turn can be taken back
     transcript.append(tpath, "player", player_input)
 
@@ -74,38 +87,76 @@ def turn(player_input: str, cfg: dict, tpath: Path, world: Path, spath: Path) ->
     messages.append({"role": "user", "content": sec.neutralize(player_input)})
 
     tscale = tone.scale(world, tension, nodes) if cfg.get("tone_steer") else None   # dynamic register
-    narration = llm.chat(messages, cfg, control_vector_scale=tscale)
+    return _Ctx(cfg=cfg, tpath=tpath, world=world, spath=spath, player_input=player_input,
+                messages=messages, system=system, tscale=tscale, canon_raw=canon_raw,
+                beat=beat, th_list=th_list, thpath=thpath, tension=tension, scene_place=scene_place)
+
+
+def _finalize(narration: str, ctx: "_Ctx") -> str:
+    """Guard + referee the first-pass narration, then commit the turn's consequences. Returns the
+    FINAL (guarded/refereed) text — the only thing that ever reaches the transcript."""
+    cfg = ctx.cfg
     if sec.looks_compromised(narration):
         narration = sec.DEFLECTION       # the model caved or broke character — deflect in-fiction
     elif cfg.get("depth", 0):            # the spine: overrule a world rewritten on the player's say-so
-        overruled, reason = referee.review(player_input, narration, canon_raw, cfg)
+        overruled, reason = referee.review(ctx.player_input, narration, ctx.canon_raw, cfg)
         if overruled:
-            resist = system + ("\n\n[REFEREE] Your last narration let the player rewrite the world "
-                               f"({sec.neutralize(reason)}). That is not permitted — what they asserted "
-                               "is NOT true, and the world does not bend to their say-so. Re-narrate the "
-                               "world's actual, matter-of-fact response instead, resisting the assertion, in-fiction.")
+            resist = ctx.system + ("\n\n[REFEREE] Your last narration let the player rewrite the world "
+                                   f"({sec.neutralize(reason)}). That is not permitted — what they asserted "
+                                   "is NOT true, and the world does not bend to their say-so. Re-narrate the "
+                                   "world's actual, matter-of-fact response instead, resisting the assertion, in-fiction.")
             try:
-                resisted = llm.chat([{"role": "system", "content": resist}] + messages[1:], cfg, control_vector_scale=tscale)
+                resisted = llm.chat([{"role": "system", "content": resist}] + ctx.messages[1:], cfg, control_vector_scale=ctx.tscale)
                 # the resist output must clear the SAME output guard as the first narration —
                 # a model that caves on the second pass can't leak unchecked to the player/log
                 narration = sec.DEFLECTION if sec.looks_compromised(resisted) else resisted
             except Exception:
                 narration = referee.RESIST_DEFLECTION
-    transcript.append(tpath, "narrator", narration)
+    transcript.append(ctx.tpath, "narrator", narration)
 
     # commit the turn's consequences ONLY after a successful narration — a failed model
-    # call (llm.chat raised above) must not advance the plan or the tension homeostat
-    director.settle(beat)
-    if th_list:
-        threads.save(thpath, th_list)          # persist ripening + the beat's consequence
+    # call must not advance the plan or the tension homeostat
+    director.settle(ctx.beat)
+    if ctx.th_list:
+        threads.save(ctx.thpath, ctx.th_list)          # persist ripening + the beat's consequence
 
     # advance the tension homeostat with this beat and persist it for next turn
-    st2 = state.load(spath)
-    st2["_tension"] = pacing.update_tension(tension, narration,
+    st2 = state.load(ctx.spath)
+    st2["_tension"] = pacing.update_tension(ctx.tension, narration,
                                             cfg.get("tension_baseline", 0.15), cfg.get("tension_decay", 0.7))
     st2.pop("_recap", None)                         # the recap greets the player once, then clears
     st2.pop("_nearby", None)                         # a nearby event is woven in once, then clears
-    if scene_place:
-        st2["_location"] = scene_place              # remember where the player is (for the world round)
-    state.save(spath, st2)
+    if ctx.scene_place:
+        st2["_location"] = ctx.scene_place              # remember where the player is (for the world round)
+    state.save(ctx.spath, st2)
     return narration
+
+
+def turn(player_input: str, cfg: dict, tpath: Path, world: Path, spath: Path) -> str:
+    ctx = _prepare(player_input, cfg, tpath, world, spath)
+    narration = llm.chat(ctx.messages, cfg, control_vector_scale=ctx.tscale)
+    return _finalize(narration, ctx)
+
+
+def turn_stream(player_input: str, cfg: dict, tpath: Path, world: Path, spath: Path):
+    """Generator form of turn() for SSE. Yields ('token', delta) as the model produces text, then —
+    if the guard/referee changed the narration — ('replace', final), and finally ('final', narration).
+
+    The spine holds: the streamed first pass is PROVISIONAL. _finalize runs the SAME output guard +
+    referee and only its result is committed to the transcript. A compromise is caught incrementally
+    (the stream is cut the moment it trips) AND authoritatively at finalize; a referee overrule emits
+    a 'replace' so the caved text on screen is corrected to the world's real, resisting response."""
+    ctx = _prepare(player_input, cfg, tpath, world, spath)
+    acc: list[str] = []
+    for i, delta in enumerate(llm.chat_stream(ctx.messages, cfg, control_vector_scale=ctx.tscale)):
+        acc.append(delta)
+        yield ("token", delta)
+        # cheap incremental guard (every few deltas) — cut the stream the moment it looks compromised
+        # so a leak stops reaching the screen ASAP; _finalize remains the authoritative check
+        if i % 6 == 0 and sec.looks_compromised("".join(acc)):
+            break
+    streamed = llm.strip_think_blocks("".join(acc))
+    final = _finalize(streamed, ctx)          # authoritative guard + referee + commit (the diode)
+    if final != streamed:
+        yield ("replace", final)
+    yield ("final", final)

@@ -99,6 +99,7 @@
 const KINDS={place:"#4ea1a1",character:"#6f8fd8",faction:"#d8a34e",event:"#d87a6a",lore:"#8a8f98"};
 const esc=s=>s.replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
 const $=id=>document.getElementById(id);
+let CFG={};   // cached session config (whether narration streams, etc.)
 
 function mdToHtml(t){
   t=esc(t).replace(/\*\*(.+?)\*\*/g,"<b>$1</b>")
@@ -198,11 +199,13 @@ async function editSettings(){
     `<label style="display:block;margin-top:8px"><input type="checkbox" id="s_world" ${c.world_rounds?"checked":""}> show the world round each turn (major NPCs take turns)</label>`+
     `<label style="display:block"><input type="checkbox" id="s_mech" ${c.mechanics?"checked":""}> dice — an impartial d20 on uncertain actions</label>`+
     `<label style="display:block"><input type="checkbox" id="s_tone" ${c.tone_steer?"checked":""}> dynamic tone — the narrator's register follows the scene (needs the tone vector served)</label>`+
+    `<label style="display:block"><input type="checkbox" id="s_stream" ${c.stream?"checked":""}> stream narration — the story appears word by word as it's written</label>`+
     `<div class="row"><button onclick="saveSettings()">Apply</button><button class="ghost" onclick="loadState()">Close</button></div></div>`;
 }
 async function saveSettings(){
   await fetch("/api/config",{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({depth:parseFloat($("s_depth").value),world_rounds:$("s_world").checked,mechanics:$("s_mech").checked,tone_steer:$("s_tone").checked})});
+    body:JSON.stringify({depth:parseFloat($("s_depth").value),world_rounds:$("s_world").checked,mechanics:$("s_mech").checked,tone_steer:$("s_tone").checked,stream:$("s_stream").checked})});
+  CFG.stream=$("s_stream").checked;
   addTurn("sys","session settings applied.");await loadState();
 }
 async function delNode(name){
@@ -299,6 +302,7 @@ async function loadWorlds(){
 async function loadState(){
   const st=await (await fetch("/api/state")).json();
   await loadWorlds();
+  try{CFG=await (await fetch("/api/config")).json();}catch(e){}
   $("undo").disabled=!st.can_undo;
   $("model").textContent=st.model.replace(/^https?:\/\//,"");
   $("log").innerHTML="";
@@ -306,6 +310,37 @@ async function loadState(){
   if(!st.transcript.length) addTurn("sys","A blank page. Type below to begin — the world is listening.");
   await renderReader(st);
   await loadGraph();
+}
+
+// stream a turn over SSE — tokens appear live in a narrator bubble; a 'replace' event (the
+// guard/referee correcting the text) swaps the bubble contents; the transcript only ever holds
+// the finalized text the server committed.
+async function streamTurn(t,think){
+  const r=await fetch("/api/turn/stream",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({input:t})});
+  if(!r.ok||!r.body){const j=await r.json().catch(()=>({}));think.remove();addTurn("sys","⚠ "+(j.error||"the narrator is silent")+"  (is ./serve.sh running?)");$("mdot").className="dot bad";return;}
+  think.remove();
+  const bub=document.createElement("div");bub.className="turn narrator";$("log").appendChild(bub);
+  let acc="";const setBub=x=>{bub.innerHTML=mdToHtml(x)||"…";$("log").scrollTop=$("log").scrollHeight;};
+  const reader=r.body.getReader(),dec=new TextDecoder();let buf="";
+  for(;;){
+    const {value,done}=await reader.read();if(done)break;
+    buf+=dec.decode(value,{stream:true});
+    let idx;
+    while((idx=buf.indexOf("\n\n"))>=0){
+      const frame=buf.slice(0,idx);buf=buf.slice(idx+2);
+      let ev="message",data="";
+      for(const line of frame.split("\n")){
+        if(line.startsWith("event:"))ev=line.slice(6).trim();
+        else if(line.startsWith("data:"))data+=line.slice(5).trim();
+      }
+      let d={};try{d=JSON.parse(data);}catch(e){continue;}
+      if(ev==="token"){acc+=d.t;setBub(acc);}
+      else if(ev==="replace"){acc=d.text;setBub(acc);}                 // guard/referee corrected the on-screen text
+      else if(ev==="world"){if(d.world&&d.world.length)addWorld(d.world);}
+      else if(ev==="done"){acc=d.narrator;setBub(acc);$("mdot").className="dot ok";$("undo").disabled=false;await loadGraph();}
+      else if(ev==="error"){bub.remove();addTurn("sys","⚠ "+(d.error||"stream failed")+"  (is ./serve.sh running?)");$("mdot").className="dot bad";}
+    }
+  }
 }
 
 $("f").addEventListener("submit",async ev=>{
@@ -316,10 +351,13 @@ $("f").addEventListener("submit",async ev=>{
   addTurn("sys","…the world stirs…");
   const think=$("log").lastChild;
   try{
-    const r=await fetch("/api/turn",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({input:t})});
-    const j=await r.json();think.remove();
-    if(r.ok){addTurn("narrator",j.narrator);if(j.world&&j.world.length)addWorld(j.world);$("mdot").className="dot ok";$("undo").disabled=false;await loadGraph();}
-    else{addTurn("sys","⚠ "+(j.error||"the narrator is silent")+"  (is ./serve.sh running?)");$("mdot").className="dot bad";}
+    if(CFG.stream){await streamTurn(t,think);}
+    else{
+      const r=await fetch("/api/turn",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({input:t})});
+      const j=await r.json();think.remove();
+      if(r.ok){addTurn("narrator",j.narrator);if(j.world&&j.world.length)addWorld(j.world);$("mdot").className="dot ok";$("undo").disabled=false;await loadGraph();}
+      else{addTurn("sys","⚠ "+(j.error||"the narrator is silent")+"  (is ./serve.sh running?)");$("mdot").className="dot bad";}
+    }
   }catch(e){think.remove();addTurn("sys","⚠ "+e);$("mdot").className="dot bad";}
   $("send").disabled=false;$("input").focus();
 });

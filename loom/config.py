@@ -43,6 +43,7 @@ DEFAULTS = {
     "world_rounds":     False, # the toggle: run + SHOW a world round during play (off → sleep carries it)
     "world_cadence":    3,      # when the toggle is on, the world takes a round every N player turns
     "tone_steer":       False,  # dynamic tone: send a per-turn control-vector scale (needs the tone vector served)
+    "stream":           False,  # stream narration token-by-token (SSE); guard+referee still finalize authoritatively
 
     # --- which campaign is live ---
     "campaign":        "example",

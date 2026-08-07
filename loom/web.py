@@ -101,7 +101,8 @@ def make_handler(cfg: dict):
                 return self._send(200, {"depth": cfg.get("depth", 0.0), "mechanics": bool(cfg.get("mechanics")),
                                         "world_rounds": bool(cfg.get("world_rounds")),
                                         "world_cadence": cfg.get("world_cadence", 3),
-                                        "tone_steer": bool(cfg.get("tone_steer"))})
+                                        "tone_steer": bool(cfg.get("tone_steer")),
+                                        "stream": bool(cfg.get("stream"))})
             if u.path == "/api/setting":
                 return self._send(200, setting.card(world))
             return self._send(404, {"error": "not found"})
@@ -133,6 +134,42 @@ def make_handler(cfg: dict):
                 except Exception:
                     world_pulse = []
                 return self._send(200, {"narrator": narration, "world": world_pulse})
+            if u.path == "/api/turn/stream":
+                # token-by-token narration over SSE. The stream is PROVISIONAL: narrate.turn_stream
+                # runs the same output guard + referee at finalize and only its result is committed,
+                # emitting a 'replace' if the on-screen text has to be corrected (the spine holds).
+                text = (body.get("input") or "").strip()
+                if not text:
+                    return self._send(400, {"error": "empty"})
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Cache-Control", "no-cache")
+                self.send_header("X-Accel-Buffering", "no")   # don't let a proxy buffer the stream
+                self.end_headers()
+
+                def sse(event, data):
+                    self.wfile.write(f"event: {event}\ndata: {json.dumps(data)}\n\n".encode())
+                    self.wfile.flush()
+
+                try:
+                    for kind, payload in narrate.turn_stream(text, cfg, tpath, world, spath):
+                        if kind == "token":
+                            sse("token", {"t": payload})
+                        elif kind == "replace":
+                            sse("replace", {"text": payload})
+                        elif kind == "final":
+                            try:
+                                world_pulse = worldturn.maybe_round(cfg, world, spath)
+                            except Exception:
+                                world_pulse = []
+                            if world_pulse:
+                                sse("world", {"world": world_pulse})
+                            sse("done", {"narrator": payload})
+                except llm.LLMError as e:
+                    sse("error", {"error": str(e)})
+                except Exception as e:
+                    sse("error", {"error": f"stream failed: {e}"})
+                return
             if u.path == "/api/undo":
                 # take back the last turn — restores transcript, threads, tension, location
                 return self._send(200, {"undone": undo.undo(tpath, spath)})
@@ -224,6 +261,8 @@ def make_handler(cfg: dict):
                     up["world_rounds"] = bool(body["world_rounds"])
                 if "tone_steer" in body:
                     up["tone_steer"] = bool(body["tone_steer"])
+                if "stream" in body:
+                    up["stream"] = bool(body["stream"])
                 if up:
                     config.save(up)
                 return self._send(200, {"ok": True})
