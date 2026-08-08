@@ -10,7 +10,7 @@ import json
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from . import config, canon, state, transcript, narrate, consolidate, llm, threads, imagine, guard, character, sleep, worldturn, player, generate, setting, undo, reputation
+from . import config, canon, state, transcript, narrate, consolidate, llm, threads, imagine, guard, character, sleep, worldturn, player, generate, setting, undo, reputation, salience
 
 STATIC = Path(__file__).resolve().parent / "static"
 
@@ -77,6 +77,9 @@ def make_handler(cfg: dict):
                 })
             if u.path == "/api/graph":
                 return self._send(200, _graph(world))
+            if u.path == "/api/cards":
+                # the cast + world, tiered by salience for the card rail (deterministic, grounded)
+                return self._send(200, {"tiers": salience.classify(world, tpath, spath)})
             if u.path == "/api/check":
                 fs = guard.check(world, spath.parent / "threads.json")
                 return self._send(200, {"findings": [{"severity": f.severity, "kind": f.kind,

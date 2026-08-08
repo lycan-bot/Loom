@@ -19,7 +19,7 @@
   #worldsel{background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:5px;padding:2px 6px;font:inherit;font-size:12px;cursor:pointer}
   header .dot{width:8px;height:8px;border-radius:50%;background:#555;display:inline-block;margin-right:5px;vertical-align:middle}
   header .dot.ok{background:#5aa469} header .dot.bad{background:#c0564a}
-  .wrap{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:minmax(0,1fr);height:calc(100vh - 45px)}
+  .wrap{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr) 252px;grid-template-rows:minmax(0,1fr);height:calc(100vh - 45px)}
   .story{display:flex;flex-direction:column;border-right:1px solid var(--border);min-width:0;min-height:0}
   #log{flex:1;min-height:0;overflow-y:auto;padding:18px 22px}
   .turn{margin:0 0 18px}
@@ -35,13 +35,34 @@
          font:inherit;font-weight:600;cursor:pointer}
   button:disabled{opacity:.5;cursor:default}
   button.ghost{background:transparent;color:var(--muted);border:1px solid var(--border)}
-  .world{display:flex;flex-direction:column;min-width:0}
-  .worldbar{display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:1px solid var(--border);color:var(--muted);font-size:12px}
-  svg{width:100%;flex:1;display:block;background:radial-gradient(circle at 50% 40%,#14161c,#0f1013)}
+  /* center: the detail / continuity pane */
+  .detail{display:flex;flex-direction:column;border-right:1px solid var(--border);min-width:0;min-height:0}
+  .detailbar{display:flex;align-items:center;gap:12px;padding:8px 16px;border-bottom:1px solid var(--border);color:var(--muted);font-size:12px}
+  .detailbar a{cursor:pointer}
+  .detailbar a.on{color:var(--accent)}
+  /* right: the categorized card rail */
+  .rail{display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--panel)}
+  .railbar{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--border);color:var(--muted);font-size:12px}
+  #cards{flex:1;min-height:0;overflow-y:auto;padding:4px 8px 16px}
+  .tier{color:var(--muted);font-size:9.5px;text-transform:uppercase;letter-spacing:1.2px;margin:13px 6px 3px;opacity:.75}
+  .card{display:flex;align-items:center;gap:7px;padding:6px 8px;border-radius:6px;cursor:pointer;border:1px solid transparent}
+  .card:hover{background:var(--panel2)}
+  .card.active{background:var(--panel2);border-color:var(--border)}
+  .card .cdot{width:8px;height:8px;border-radius:50%;flex:none}
+  .card .cname{color:var(--text);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .card .chint{color:var(--muted);font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-left:auto;max-width:44%;text-align:right}
+  .card .pin{color:var(--accent);font-size:9px;flex:none}
+  /* the node map, now a pop-up */
+  svg{width:100%;display:block;background:radial-gradient(circle at 50% 40%,#14161c,#0f1013)}
   .node circle{cursor:pointer;stroke:#0f1013;stroke-width:1.5}
   .node text{fill:var(--text);font-size:11px;pointer-events:none}
   .edge{stroke:#333944;stroke-width:1}
-  #reader{height:38%;border-top:1px solid var(--border);overflow-y:auto;padding:14px 18px;background:var(--panel)}
+  .modal{position:fixed;inset:0;background:rgba(8,9,11,.72);display:none;align-items:center;justify-content:center;z-index:50}
+  .modal.open{display:flex}
+  .modalpanel{width:min(88vw,880px);height:min(82vh,640px);background:var(--panel);border:1px solid var(--border);border-radius:10px;display:flex;flex-direction:column;overflow:hidden}
+  .modalbar{display:flex;align-items:center;gap:14px;padding:9px 14px;border-bottom:1px solid var(--border);color:var(--muted);font-size:12px}
+  .modalpanel svg{flex:1;min-height:0}
+  #reader{flex:1;min-height:0;overflow-y:auto;padding:16px 20px;background:var(--panel)}
   #reader h2{margin:0 0 4px;font-size:14px;color:var(--accent)}
   #reader .kind{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px}
   #reader .body{font-family:Georgia,serif;font-size:14px;line-height:1.65;color:#ded9cf}
@@ -89,17 +110,62 @@
       <button id="sleep" class="ghost" type="button" title="Let the world turn while you're away">Sleep</button>
     </form>
   </section>
-  <section class="world">
-    <div class="worldbar"><span id="worldcount">world</span><a class="mini" onclick="editNode('')">＋ node</a><span style="margin-left:auto" id="legend"></span></div>
-    <svg id="graph" viewBox="0 0 600 400" preserveAspectRatio="xMidYMid meet"></svg>
+  <section class="detail">
+    <div class="detailbar"><a id="tab_cont" class="on" onclick="showContinuity()">◆ continuity</a><span id="detailwhat" style="margin-left:auto;opacity:.7"></span></div>
     <div id="reader"><div class="kind">continuity</div><div id="facts" class="facts"></div></div>
   </section>
+  <section class="rail">
+    <div class="railbar"><span id="worldcount">world</span><a class="mini" onclick="openGraph()" title="Open the node map">🗺 map</a><a class="mini" onclick="editNode('')" title="Add a canon node">＋</a></div>
+    <div id="cards"></div>
+  </section>
+</div>
+<div class="modal" id="graphmodal" onclick="if(event.target===this)closeGraph()">
+  <div class="modalpanel">
+    <div class="modalbar"><b style="color:var(--accent)">node map</b><span id="legend"></span><a class="mini" style="margin-left:auto" onclick="closeGraph()">✕ close</a></div>
+    <svg id="graph" viewBox="0 0 600 400" preserveAspectRatio="xMidYMid meet"></svg>
+  </div>
 </div>
 <script>
 const KINDS={place:"#4ea1a1",character:"#6f8fd8",faction:"#d8a34e",event:"#d87a6a",lore:"#8a8f98"};
 const esc=s=>s.replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
 const $=id=>document.getElementById(id);
-let CFG={};   // cached session config (whether narration streams, etc.)
+let CFG={};        // cached session config (whether narration streams, etc.)
+let _active=null;  // name of the card currently shown in the detail pane
+
+// ---- the card rail: the cast + world, tiered by salience ----
+async function loadCards(){
+  let tiers=[];
+  try{tiers=(await (await fetch("/api/cards")).json()).tiers||[];}catch(e){return;}
+  let h="";
+  for(const t of tiers){
+    if(!t.cards||!t.cards.length)continue;
+    h+=`<div class="tier">${esc(t.label)}</div>`;
+    for(const c of t.cards){
+      const col=KINDS[c.kind]||KINDS.lore;
+      h+=`<div class="card" data-name="${esc(c.name)}" onclick="openNode('${c.name.replace(/'/g,"")}')">`+
+         `<span class="cdot" style="background:${col}"></span>`+
+         `<span class="cname">${esc(c.name)}</span>`+
+         (c.overridden?`<span class="pin" title="pinned tier">📌</span>`:"")+
+         (c.hint?`<span class="chint">${esc(c.hint)}</span>`:"")+`</div>`;
+    }
+  }
+  $("cards").innerHTML=h||`<div class="tier">no cast yet — write or generate a world</div>`;
+  if(_active)_markActive(_active);
+}
+function _markActive(name){_active=name;document.querySelectorAll('.card').forEach(el=>el.classList.toggle('active',el.dataset.name===name));}
+function _openDetail(name,kind){_active=name;$("tab_cont").classList.remove("on");$("detailwhat").textContent=(kind?kind+" · ":"")+name;_markActive(name);}
+function _detailMode(what){_active=null;$("tab_cont").classList.remove("on");$("detailwhat").textContent=what||"";document.querySelectorAll('.card').forEach(el=>el.classList.remove('active'));}
+function showContinuity(){_active=null;$("detailwhat").textContent="";document.querySelectorAll('.card').forEach(el=>el.classList.remove('active'));if(window._st)renderReader(window._st);}
+// the node map, as a pop-up
+async function openGraph(){await loadGraph();$("graphmodal").classList.add("open");}
+function closeGraph(){$("graphmodal").classList.remove("open");}
+document.addEventListener("keydown",e=>{if(e.key==="Escape")closeGraph();});
+// after a turn: refresh state + map + rail; keep continuity live but never clobber an open card
+async function refreshWorld(){
+  try{window._st=await (await fetch("/api/state")).json();}catch(e){return;}
+  if(!_active) await renderReader(window._st);
+  await loadGraph(); await loadCards();
+}
 
 function mdToHtml(t){
   t=esc(t).replace(/\*\*(.+?)\*\*/g,"<b>$1</b>")
@@ -108,10 +174,14 @@ function mdToHtml(t){
 }
 
 function _eb(nm){const s=nm.replace(/'/g,"\\'");return `<div class="tctl"><a onclick="editNode('${s}')">edit</a> · <a onclick="delNode('${s}')">✕</a></div>`;}
+function _fieldRows(f){f=f||{};const skip=new Set(["setting"]);
+  const rows=Object.entries(f).filter(([k,v])=>v&&!skip.has(k)).map(([k,v])=>`<div class="crow"><span class="clabel">${esc(k)}</span> ${esc(String(v))}</div>`).join("");
+  return rows?`<div style="margin:8px 0 12px">${rows}</div>`:"";}
 async function openNode(name){
   const r=await fetch("/api/node?name="+encodeURIComponent(name));
   if(!r.ok) return;
   const n=await r.json();
+  closeGraph(); _openDetail(name, n.card?"character":(n.kind||"lore"));
   if(n.card){
     const c=n.card, row=(l,v)=>v?`<div class="crow"><span class="clabel">${l}</span> ${esc(v)}</div>`:"";
     $("reader").innerHTML=_eb(c.name)+`<h2>${esc(c.name)}</h2><div class="kind">character${c.role?" · "+esc(c.role):""}</div>`+
@@ -120,18 +190,21 @@ async function openNode(name){
     return;
   }
   $("reader").innerHTML=_eb(n.name)+`<h2>${esc(n.name)}</h2><div class="kind">${esc(n.kind)}</div>`+
-    `<div class="body">${mdToHtml(n.body)}</div>`;
+    _fieldRows(n.fields)+`<div class="body">${mdToHtml(n.body)}</div>`;
 }
 
 // ---- authoring: native editing, no external editor needed ----
 function _field(l,id,v,tag){return `<label>${l}</label>`+(tag==="textarea"?`<textarea id="${id}">${esc(v||"")}</textarea>`:`<input id="${id}" value="${esc(v||"")}">`);}
-function _charFields(c){return _field("role","f_role",c.role)+_field("met","f_met",c.met)+_field("voice","f_voice",c.voice)+_field("disposition","f_disp",c.disposition)+_field("wants","f_wants",c.want)+_field("held by","f_bound",c.bound);}
+function _impField(v){const opts=[["","auto (by salience)"],["main","main character"],["antagonist","primary antagonist"],["side","major side"],["passing","passing NPC"]];v=String(v||"").toLowerCase();
+  return `<label>importance — pin the rail tier</label><select id="f_imp">`+opts.map(([k,l])=>`<option value="${k}"${k===v?" selected":""}>${l}</option>`).join("")+`</select>`;}
+function _charFields(c,f){return _field("role","f_role",c.role)+_field("met","f_met",c.met)+_field("voice","f_voice",c.voice)+_field("disposition","f_disp",c.disposition)+_field("wants","f_wants",c.want)+_field("held by","f_bound",c.bound)+_impField((f||{}).importance);}
 function _loreFields(f){return `<div class="kind" style="margin:6px 0">world card (the theme this scene is written in)</div>`+_field("genre","f_genre",f.genre)+_field("age","f_age",f.age)+_field("tech","f_tech",f.tech)+_field("magic","f_magic",f.magic)+_field("peoples","f_peoples",f.peoples)+_field("tone","f_tone",f.tone);}
-function _xfields(kind,c,f){return kind==="character"?_charFields(c):kind==="lore"?_loreFields(f||{}):"";}
+function _xfields(kind,c,f){return kind==="character"?_charFields(c,f):kind==="lore"?_loreFields(f||{}):"";}
 async function editNode(name){
   const n=name?await (await fetch("/api/node?name="+encodeURIComponent(name))).json():{name:"",kind:"lore",body:"",card:{},fields:{}};
   const c=n.card||{}, f=n.fields||{}, kinds=["lore","place","character","faction","event"];
-  const cancel=name?`openNode('${name.replace(/'/g,"\\'")}')`:"loadState()";
+  const cancel=name?`openNode('${name.replace(/'/g,"\\'")}')`:"showContinuity()";
+  _detailMode(name?"editing · "+name:"new node");
   $("reader").innerHTML=`<div class="edit"><h2>${name?esc(name):"new node"}</h2>`+
     (name?"":_field("name","f_name","","input"))+
     `<label>kind</label><select id="f_kind">`+kinds.map(k=>`<option${k===n.kind?" selected":""}>${k}</option>`).join("")+`</select>`+
@@ -144,7 +217,7 @@ async function editNode(name){
 async function saveNode(orig){
   const name=orig||($("f_name")?$("f_name").value.trim():""); if(!name) return;
   const kind=$("f_kind").value, fields={};
-  if(kind==="character") for(const [k,id] of [["role","f_role"],["met","f_met"],["voice","f_voice"],["disposition","f_disp"],["wants","f_wants"],["bound","f_bound"]]){const el=$(id); if(el&&el.value.trim()) fields[k]=el.value.trim();}
+  if(kind==="character"){for(const [k,id] of [["role","f_role"],["met","f_met"],["voice","f_voice"],["disposition","f_disp"],["wants","f_wants"],["bound","f_bound"]]){const el=$(id); if(el&&el.value.trim()) fields[k]=el.value.trim();} const imp=$("f_imp"); if(imp&&imp.value) fields.importance=imp.value;}
   if(kind==="lore"){for(const [k,id] of [["genre","f_genre"],["age","f_age"],["tech","f_tech"],["magic","f_magic"],["peoples","f_peoples"],["tone","f_tone"]]){const el=$(id); if(el&&el.value.trim()) fields[k]=el.value.trim();} if(Object.keys(fields).length) fields.setting="true";}
   await fetch("/api/node/save",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name,kind,body:$("f_body").value,fields})});
   await loadState(); openNode(name);
@@ -152,11 +225,12 @@ async function saveNode(orig){
 // ---- player character, world generation, session settings, sleep ----
 async function editPlayer(){
   const p=await (await fetch("/api/player")).json();
+  _detailMode("your character");
   $("reader").innerHTML=`<div class="edit"><h2>Your character</h2><div class="kind">who you are in this world — the narrator will know you</div>`+
     _field("name","p_name",p.name||"","input")+_field("role","p_role",p.role||"","input")+
     _field("wants","p_wants",p.wants||"","input")+_field("where you start","p_loc",p.location||"","input")+
     _field("description","p_desc",p.description||"","textarea")+
-    `<div class="row"><button onclick="savePlayer()">Save</button><button class="ghost" onclick="loadState()">Cancel</button></div></div>`;
+    `<div class="row"><button onclick="savePlayer()">Save</button><button class="ghost" onclick="showContinuity()">Cancel</button></div></div>`;
 }
 async function savePlayer(){
   const name=$("p_name").value.trim(); if(!name){return;}
@@ -165,9 +239,10 @@ async function savePlayer(){
   await loadState(); addTurn("sys",`you are now ${esc(name)}. the world knows you.`);
 }
 async function genWorld(){
+  _detailMode("generate a world");
   $("reader").innerHTML=`<div class="edit"><h2>✦ Generate a world</h2><div class="kind">a base prompt, or leave blank to roll random</div>`+
     _field("prompt / seed","g_seed","","textarea")+
-    `<div class="row"><button onclick="rollWorld()">Roll</button><button class="ghost" onclick="loadState()">Cancel</button></div><div id="g_out"></div></div>`;
+    `<div class="row"><button onclick="rollWorld()">Roll</button><button class="ghost" onclick="showContinuity()">Cancel</button></div><div id="g_out"></div></div>`;
 }
 async function rollWorld(){
   $("g_out").innerHTML="<div class='kind' style='margin-top:10px'>rolling… (a few seconds)</div>";
@@ -194,13 +269,14 @@ async function createWorld(){
 async function editSettings(){
   const c=await (await fetch("/api/config")).json();
   const opt=(v,l)=>`<option value="${v}"${Math.abs((c.depth||0)-v)<0.01?" selected":""}>${l}</option>`;
+  _detailMode("session settings");
   $("reader").innerHTML=`<div class="edit"><h2>⚙ Session</h2>`+
     `<label>realness depth (mirror → other)</label><select id="s_depth">`+opt(0,"0 · mirror (the world agrees)")+opt(0.5,"0.5 · in between")+opt(1,"1 · other (the world resists)")+`</select>`+
     `<label style="display:block;margin-top:8px"><input type="checkbox" id="s_world" ${c.world_rounds?"checked":""}> show the world round each turn (major NPCs take turns)</label>`+
     `<label style="display:block"><input type="checkbox" id="s_mech" ${c.mechanics?"checked":""}> dice — an impartial d20 on uncertain actions</label>`+
     `<label style="display:block"><input type="checkbox" id="s_tone" ${c.tone_steer?"checked":""}> dynamic tone — the narrator's register follows the scene (needs the tone vector served)</label>`+
     `<label style="display:block"><input type="checkbox" id="s_stream" ${c.stream?"checked":""}> stream narration — the story appears word by word as it's written</label>`+
-    `<div class="row"><button onclick="saveSettings()">Apply</button><button class="ghost" onclick="loadState()">Close</button></div></div>`;
+    `<div class="row"><button onclick="saveSettings()">Apply</button><button class="ghost" onclick="showContinuity()">Close</button></div></div>`;
 }
 async function saveSettings(){
   await fetch("/api/config",{method:"POST",headers:{"Content-Type":"application/json"},
@@ -211,7 +287,7 @@ async function saveSettings(){
 async function delNode(name){
   if(!confirm("Delete node “"+name+"”?")) return;
   await fetch("/api/node/delete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name})});
-  await loadState(); $("reader").innerHTML="";
+  await loadState(); showContinuity();
 }
 async function newWorld(){
   const name=(prompt("New world name:")||"").trim(); if(!name){await loadWorlds();return;}
@@ -253,6 +329,7 @@ async function renderReader(st){
     (rep.length?`<div class="kind" style="margin-top:12px">how the world regards you</div>`+repHtml:"")+
     `<div class="kind" style="margin-top:14px">the plan · <a class="addlink" onclick="addThread()">＋ thread</a></div>`+
     (plan||`<span style="color:var(--muted);font-size:12px">nothing ripening yet</span>`)+ck;
+  $("tab_cont").classList.add("on");$("detailwhat").textContent="";
 }
 
 async function loadGraph(){
@@ -276,7 +353,7 @@ async function loadGraph(){
     s+=`<g class="node" onclick="openNode('${n.name.replace(/'/g,"")}')"><circle cx="${n.x}" cy="${n.y}" r="${7+n.name.length*0.25}" fill="${c}"/>`+
        `<text x="${n.x+10}" y="${n.y+4}">${esc(n.name)}</text></g>`;}
   svg.innerHTML=s;
-  $("worldcount").textContent=`${nodes.length} nodes · ${links.length} links`;
+  $("worldcount").textContent=`${nodes.length} nodes`; $("worldcount").title=`${links.length} links`;
   $("legend").innerHTML=Object.entries(KINDS).map(([k,c])=>`<span style="color:${c};margin-left:8px">●</span>${k}`).join("");
 }
 
@@ -301,6 +378,7 @@ async function loadWorlds(){
 
 async function loadState(){
   const st=await (await fetch("/api/state")).json();
+  window._st=st;                       // cached so 'continuity' can re-render without a refetch
   await loadWorlds();
   try{CFG=await (await fetch("/api/config")).json();}catch(e){}
   $("undo").disabled=!st.can_undo;
@@ -310,6 +388,7 @@ async function loadState(){
   if(!st.transcript.length) addTurn("sys","A blank page. Type below to begin — the world is listening.");
   await renderReader(st);
   await loadGraph();
+  await loadCards();
 }
 
 // stream a turn over SSE — tokens appear live in a narrator bubble; a 'replace' event (the
@@ -337,7 +416,7 @@ async function streamTurn(t,think){
       if(ev==="token"){acc+=d.t;setBub(acc);}
       else if(ev==="replace"){acc=d.text;setBub(acc);}                 // guard/referee corrected the on-screen text
       else if(ev==="world"){if(d.world&&d.world.length)addWorld(d.world);}
-      else if(ev==="done"){acc=d.narrator;setBub(acc);$("mdot").className="dot ok";$("undo").disabled=false;await loadGraph();}
+      else if(ev==="done"){acc=d.narrator;setBub(acc);$("mdot").className="dot ok";$("undo").disabled=false;await refreshWorld();}
       else if(ev==="error"){bub.remove();addTurn("sys","⚠ "+(d.error||"stream failed")+"  (is ./serve.sh running?)");$("mdot").className="dot bad";}
     }
   }
@@ -355,7 +434,7 @@ $("f").addEventListener("submit",async ev=>{
     else{
       const r=await fetch("/api/turn",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({input:t})});
       const j=await r.json();think.remove();
-      if(r.ok){addTurn("narrator",j.narrator);if(j.world&&j.world.length)addWorld(j.world);$("mdot").className="dot ok";$("undo").disabled=false;await loadGraph();}
+      if(r.ok){addTurn("narrator",j.narrator);if(j.world&&j.world.length)addWorld(j.world);$("mdot").className="dot ok";$("undo").disabled=false;await refreshWorld();}
       else{addTurn("sys","⚠ "+(j.error||"the narrator is silent")+"  (is ./serve.sh running?)");$("mdot").className="dot bad";}
     }
   }catch(e){think.remove();addTurn("sys","⚠ "+e);$("mdot").className="dot bad";}
