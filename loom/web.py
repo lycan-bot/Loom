@@ -10,7 +10,7 @@ import json
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from . import config, canon, state, transcript, narrate, consolidate, llm, threads, imagine, guard, character, sleep, worldturn, player, generate, setting, undo, reputation, salience
+from . import config, canon, state, transcript, narrate, consolidate, llm, threads, imagine, guard, character, sleep, worldturn, player, generate, setting, undo, reputation, salience, assistant
 
 STATIC = Path(__file__).resolve().parent / "static"
 
@@ -182,6 +182,17 @@ def make_handler(cfg: dict):
             if u.path == "/api/undo":
                 # take back the last turn — restores transcript, threads, tension, location
                 return self._send(200, {"undone": undo.undo(tpath, spath)})
+            if u.path == "/api/assist":
+                # Orbit: an OUT-OF-CHARACTER assistant. Its reply never enters the transcript/canon,
+                # and its actions are PROPOSALS the player applies via the gated author endpoints.
+                msg = (body.get("message") or "").strip()
+                if not msg:
+                    return self._send(400, {"error": "empty"})
+                history = body.get("history") if isinstance(body.get("history"), list) else []
+                try:
+                    return self._send(200, assistant.ask(cfg, world, spath, history, msg))
+                except llm.LLMError as e:
+                    return self._send(502, {"error": str(e)})
             if u.path == "/api/consolidate":
                 lines = transcript.read_all(tpath)
                 if not lines:

@@ -110,6 +110,7 @@
   <select id="modesel" class="meta" title="degrees of freedom — how much the world bends to you" style="margin-left:6px"></select>
   <a class="mini" style="margin-left:14px" onclick="editPlayer()" title="Your character in this world">You</a>
   <a class="mini" style="margin-left:12px" onclick="genWorld()" title="Roll a new world from a prompt">✦ Generate</a>
+  <a class="mini" style="margin-left:12px" onclick="openOrbit()" title="Orbit — out-of-character assistant & world-craft">◍ Orbit</a>
   <a class="mini" style="margin-left:12px" onclick="editSettings()" title="Depth, world round, dice">⚙</a>
   <span class="meta" style="margin-left:auto"><span class="dot" id="mdot"></span><span id="model">…</span></span>
 </header>
@@ -138,6 +139,16 @@
   <div class="modalpanel">
     <div class="modalbar"><b style="color:var(--accent)">node map</b><span id="legend"></span><a class="mini" style="margin-left:auto" onclick="closeGraph()">✕ close</a></div>
     <svg id="graph" viewBox="0 0 600 400" preserveAspectRatio="xMidYMid meet"></svg>
+  </div>
+</div>
+<div class="modal" id="orbitmodal" onclick="if(event.target===this)closeOrbit()">
+  <div class="modalpanel" style="width:min(80vw,620px);height:min(82vh,680px)">
+    <div class="modalbar"><b style="color:var(--accent)">◍ Orbit</b><span style="opacity:.7">out-of-character · asks &amp; world-craft (proposals only)</span><a class="mini" style="margin-left:auto" onclick="closeOrbit()">✕ close</a></div>
+    <div id="orbitlog" style="flex:1;min-height:0;overflow-y:auto;padding:14px 16px"></div>
+    <form id="orbitform">
+      <input id="orbitinput" autocomplete="off" placeholder="Ask about the world, or 'add a tavern called the Gull'…" style="flex:1;background:var(--panel2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:9px 11px;font:inherit">
+      <button type="submit">Ask</button>
+    </form>
   </div>
 </div>
 <script>
@@ -220,7 +231,50 @@ async function renderMemories(){
 // the node map, as a pop-up
 async function openGraph(){await loadGraph();$("graphmodal").classList.add("open");}
 function closeGraph(){$("graphmodal").classList.remove("open");}
-document.addEventListener("keydown",e=>{if(e.key==="Escape")closeGraph();});
+document.addEventListener("keydown",e=>{if(e.key==="Escape"){closeGraph();closeOrbit();}});
+
+// ---- Orbit: the out-of-character assistant (lives OUTSIDE the seal; proposals only) ----
+let ORBIT=[];   // OOC history — kept client-side, NEVER written to the sealed transcript/canon
+function openOrbit(){$("orbitmodal").classList.add("open");
+  if(!ORBIT.length)_orbitSay("assistant",`<div style="font-size:13.5px;line-height:1.55">I'm <b>Orbit</b> — your out-of-character guide. Ask me about the world or how the game works, or tell me to craft something (a place, a character, a thread). Anything I change, <b>you approve first</b>.</div>`);
+  setTimeout(()=>$("orbitinput").focus(),0);}
+function closeOrbit(){$("orbitmodal").classList.remove("open");}
+function _orbitSay(role,html){const d=document.createElement("div");d.style.cssText="margin:0 0 13px";
+  d.innerHTML=(role==="user")?`<div style="color:var(--muted);font-size:12.5px">› ${esc(html)}</div>`:html;
+  $("orbitlog").appendChild(d);$("orbitlog").scrollTop=$("orbitlog").scrollHeight;return d;}
+async function sendOrbit(msg){
+  ORBIT.push({role:"user",text:msg});_orbitSay("user",msg);
+  const think=_orbitSay("assistant",`<span style="color:var(--muted)">…thinking…</span>`);
+  try{
+    const r=await fetch("/api/assist",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({message:msg,history:ORBIT.slice(0,-1)})});
+    const j=await r.json();think.remove();
+    if(!r.ok){_orbitSay("assistant",`<span style="color:var(--event)">⚠ ${esc(j.error||"unreachable")}  (is ./serve.sh running?)</span>`);return;}
+    ORBIT.push({role:"assistant",text:j.reply});_orbitReply(j);
+  }catch(e){think.remove();_orbitSay("assistant","⚠ "+esc(String(e)));}
+}
+function _orbitReply(j){
+  const d=_orbitSay("assistant",`<div style="font-size:13.5px;line-height:1.55">${mdToHtml(j.reply)}</div>`);
+  for(const a of (j.actions||[])){
+    const label=a.type==="create_node"?`＋ create ${esc(a.kind)} “${esc(a.name)}”`:a.type==="add_thread"?`✦ add this thread`:a.type==="set_config"?`⚙ apply these settings`:"apply";
+    const wrap=document.createElement("div");wrap.style.cssText="margin-top:6px";
+    const btn=document.createElement("button");btn.className="ghost";btn.style.cssText="font-size:12px";btn.innerHTML=label;
+    btn.onclick=async()=>{btn.disabled=true;try{await applyOrbitAction(a);btn.textContent="✓ applied";}catch(e){btn.textContent="⚠ failed";btn.disabled=false;}};
+    wrap.appendChild(btn);
+    const preview=a.type==="add_thread"?a.question:a.type==="set_config"?`depth ${a.depth??"—"}, dice ${("mechanics"in a)?(a.mechanics?"on":"off"):"—"}`:a.body||"";
+    if(preview){const p=document.createElement("div");p.style.cssText="font-size:11.5px;color:var(--muted);font-style:italic;margin-top:3px";p.textContent=preview;wrap.appendChild(p);}
+    d.appendChild(wrap);
+  }
+}
+// apply a PROPOSED action through the same gated endpoints the author UI uses (the player's click = consent)
+async function applyOrbitAction(a){
+  if(a.type==="create_node")
+    await fetch("/api/node/save",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:a.name,kind:a.kind,body:a.body,fields:a.fields||{}})});
+  else if(a.type==="add_thread")
+    await fetch("/api/thread/save",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({thread:{question:a.question,seed:a.seed,payoff:a.payoff,status:"seeded",readiness:0.3}})});
+  else if(a.type==="set_config"){const c={};if("depth"in a)c.depth=a.depth;if("mechanics"in a)c.mechanics=a.mechanics;
+    await fetch("/api/config",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(c)});CFG={...CFG,...c};}
+  await loadState();   // reflect the new node/thread/setting in the rail + panels
+}
 // after a turn: refresh state + map + rail; keep continuity live but never clobber an open card
 async function refreshWorld(){
   try{window._st=await (await fetch("/api/state")).json();}catch(e){return;}
@@ -242,7 +296,7 @@ async function openNode(name){
   const r=await fetch("/api/node?name="+encodeURIComponent(name));
   if(!r.ok) return;
   const n=await r.json();
-  closeGraph(); _openDetail(name, n.card?"character":(n.kind||"lore"));
+  closeGraph(); closeOrbit(); _openDetail(name, n.card?"character":(n.kind||"lore"));
   if(n.card){
     const c=n.card, row=(l,v)=>v?`<div class="crow"><span class="clabel">${l}</span> ${esc(v)}</div>`:"";
     $("reader").innerHTML=_eb(c.name)+`<h2>${esc(c.name)}</h2><div class="kind">character${c.role?" · "+esc(c.role):""}</div>`+
@@ -574,6 +628,7 @@ $("sleep").addEventListener("click",async()=>{
 });
 
 $("modesel").addEventListener("change",applyMode);
+$("orbitform").addEventListener("submit",ev=>{ev.preventDefault();const m=$("orbitinput").value.trim();if(!m)return;$("orbitinput").value="";sendOrbit(m);});
 $("worldsel").addEventListener("change",async()=>{
   if($("worldsel").value==="__new__"){ newWorld(); return; }
   await fetch("/api/use",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:$("worldsel").value})});
