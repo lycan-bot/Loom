@@ -86,3 +86,31 @@ bm25/cosine/rrf). Everything below is round-2+.
 ## Two greenfield gaps (build from scratch — not in Primarch)
 - **transcript→canon consolidation body.** Every touching piece (sleep dispatcher, detector registry) gives the scheduling shell + advisory-check contract, but no working "promote a transcript event into a canon node / reconcile the world-bible" logic. *(loom's `consolidate.py` is a first cut of exactly this.)*
 - **per-character NPC voice.** The voice pieces give ONE narrator voice; distinct per-character voices are net-new.
+
+---
+
+## UI / MODE ROADMAP (2026-08 — post card-rail)
+
+The right panel is now story · continuity/detail · a salience-tiered card rail (World · Factions &
+groups · Main · Antagonists · Side · Passing), with the node map as a pop-up. Next, in order:
+
+1. **Mode presets** — a top-bar selector turning the depth dial + mechanics into the three
+   *degrees of freedom* the player actually means:
+   - **Power fantasy** (free reign) = depth 0 · mirror (world agrees) · mechanics off
+   - **Writing a story** (freeform) = depth ~0.5 · mechanics off
+   - **Real campaign** = depth ~1 · other (world resists) · mechanics on
+   (depth already gates the referee, so it doubles as the referee-strictness knob.)
+2. **Threads board + memories views** — center-pane tabs beside continuity. Keep the label
+   **"threads"** (not "quest book"), but present the board quest-book-style; a **memories** tab
+   surfaces consolidated canon as the record.
+3. **Orbit-style assistant** — a non-diegetic OOC side-channel (answer meta questions, help craft
+   the world via generate/consolidate/node-edit, tune the GM/config). HARD RULE: lives OUTSIDE the
+   seal — reads canon + config, PROPOSES gated edits, never writes narration or bypasses the
+   consolidation diode. A GM console, not a second narrator.
+
+### DEFERRED — the full D&D layer ("real campaign", crunchy tier) — LATER
+A genuine 5e-style layer: a character sheet with stats/HP/XP, stat-tied rolls, initiative, maybe a
+battle map (cf. Friends & Fables). BIG and orthogonal to loom's narrative-memory spine — the light
+"real campaign" mode (world-resists + impartial d20) already gets most of the feel. Revisit once the
+narrative core + the three modes + the assistant are solid. Do NOT let it bloat the sealed core;
+build it as an optional module gated behind the "real campaign" mode.
