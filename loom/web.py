@@ -80,6 +80,12 @@ def make_handler(cfg: dict):
             if u.path == "/api/cards":
                 # the cast + world, tiered by salience for the card rail (deterministic, grounded)
                 return self._send(200, {"tiers": salience.classify(world, tpath, spath)})
+            if u.path == "/api/threads":
+                # ALL threads (every status) with full detail — the quest-book board + memories view
+                return self._send(200, {"threads": [
+                    {"id": t.id, "question": t.question, "kind": t.kind, "status": t.status,
+                     "readiness": round(t.readiness, 2), "entities": t.entities, "seed": t.seed,
+                     "payoff": t.payoff} for t in threads.load(spath.parent / "threads.json")]})
             if u.path == "/api/check":
                 fs = guard.check(world, spath.parent / "threads.json")
                 return self._send(200, {"findings": [{"severity": f.severity, "kind": f.kind,

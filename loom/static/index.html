@@ -87,12 +87,27 @@
   .edit input,.edit select,.edit textarea{width:100%;box-sizing:border-box;background:var(--panel2);border:1px solid var(--border);color:var(--text);border-radius:5px;padding:6px 8px;font:inherit;font-size:13px}
   .edit textarea{min-height:120px;resize:vertical;font-family:Georgia,serif;line-height:1.5}
   .edit .row{display:flex;gap:8px;margin-top:12px}
+  /* the threads board (quest-book style) + the memories record */
+  .qcard{background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:9px 11px;margin:8px 0}
+  .qcard .qq{font-size:13px;color:var(--text);line-height:1.4}
+  .qcard .qbar{height:4px;background:var(--bg);border-radius:3px;margin:7px 0 3px;overflow:hidden}
+  .qcard .qfill{height:100%;background:var(--accent)}
+  .qcard .qmeta{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+  .qcard .qseed{font-size:11.5px;color:var(--muted);margin-top:6px;font-style:italic;line-height:1.45}
+  .qcard.done{opacity:.55}
+  .qcard.done .qfill{background:var(--place)}
+  .memh{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin:16px 0 6px}
+  .memh:first-child{margin-top:2px}
+  .ev{font-size:12.5px;margin:4px 0;color:var(--text);cursor:pointer;border-bottom:1px dotted transparent}
+  .ev:hover{color:var(--accent)}
+  .ev .evk{color:var(--muted);font-size:10px;margin-right:6px;text-transform:uppercase}
 </style>
 </head>
 <body>
 <header>
   <h1>loom</h1>
   <select id="worldsel" class="meta" title="switch world"></select>
+  <select id="modesel" class="meta" title="degrees of freedom — how much the world bends to you" style="margin-left:6px"></select>
   <a class="mini" style="margin-left:14px" onclick="editPlayer()" title="Your character in this world">You</a>
   <a class="mini" style="margin-left:12px" onclick="genWorld()" title="Roll a new world from a prompt">✦ Generate</a>
   <a class="mini" style="margin-left:12px" onclick="editSettings()" title="Depth, world round, dice">⚙</a>
@@ -111,7 +126,7 @@
     </form>
   </section>
   <section class="detail">
-    <div class="detailbar"><a id="tab_cont" class="on" onclick="showContinuity()">◆ continuity</a><span id="detailwhat" style="margin-left:auto;opacity:.7"></span></div>
+    <div class="detailbar"><a id="tab_cont" class="on" onclick="showContinuity()">◆ continuity</a><a id="tab_threads" onclick="showThreads()">✦ threads</a><a id="tab_mem" onclick="showMemories()">◷ memories</a><span id="detailwhat" style="margin-left:auto;opacity:.7"></span></div>
     <div id="reader"><div class="kind">continuity</div><div id="facts" class="facts"></div></div>
   </section>
   <section class="rail">
@@ -152,10 +167,56 @@ async function loadCards(){
   $("cards").innerHTML=h||`<div class="tier">no cast yet — write or generate a world</div>`;
   if(_active)_markActive(_active);
 }
+function _setTab(id){["tab_cont","tab_threads","tab_mem"].forEach(t=>$(t).classList.toggle("on",t===id));}
+function _clearCards(){document.querySelectorAll('.card').forEach(el=>el.classList.remove('active'));}
 function _markActive(name){_active=name;document.querySelectorAll('.card').forEach(el=>el.classList.toggle('active',el.dataset.name===name));}
-function _openDetail(name,kind){_active=name;$("tab_cont").classList.remove("on");$("detailwhat").textContent=(kind?kind+" · ":"")+name;_markActive(name);}
-function _detailMode(what){_active=null;$("tab_cont").classList.remove("on");$("detailwhat").textContent=what||"";document.querySelectorAll('.card').forEach(el=>el.classList.remove('active'));}
-function showContinuity(){_active=null;$("detailwhat").textContent="";document.querySelectorAll('.card').forEach(el=>el.classList.remove('active'));if(window._st)renderReader(window._st);}
+function _openDetail(name,kind){_active=name;_setTab(null);$("detailwhat").textContent=(kind?kind+" · ":"")+name;_markActive(name);}
+function _detailMode(what){_active=null;_setTab(null);$("detailwhat").textContent=what||"";_clearCards();}
+function showContinuity(){_active=null;$("detailwhat").textContent="";_clearCards();if(window._st)renderReader(window._st);}
+async function showThreads(){_active=null;_clearCards();_setTab("tab_threads");$("detailwhat").textContent="";await renderThreads();}
+async function showMemories(){_active=null;_clearCards();_setTab("tab_mem");$("detailwhat").textContent="";await renderMemories();}
+
+// the threads board — every thread as a quest-book card, grouped by momentum (keep the 'threads' name)
+async function renderThreads(){
+  let ths=[];try{ths=(await (await fetch("/api/threads")).json()).threads||[];}catch(e){}
+  const groups=[["in motion",t=>t.status!=="dormant"&&t.status!=="resolved"&&t.status!=="imagined"],
+                ["waiting",t=>t.status==="dormant"||t.status==="imagined"],
+                ["resolved",t=>t.status==="resolved"]];
+  let h=`<h2>the threads</h2><div class="kind">the open questions that pull the story · <a class="addlink" onclick="addThread()">＋ thread</a></div>`;
+  let any=false;
+  for(const [label,pred] of groups){
+    const g=ths.filter(pred); if(!g.length)continue; any=true;
+    h+=`<div class="memh">${label}</div>`;
+    for(const t of g){
+      const pct=Math.round((t.readiness||0)*100), done=t.status==="resolved";
+      h+=`<div class="qcard${done?" done":""}">`+
+         (done?"":`<a class="tctl" title="remove" onclick="delThread('${(t.id||'').replace(/'/g,"\\'")}')">✕</a>`)+
+         `<div class="qq">${esc(t.question)}</div>`+
+         `<div class="qbar"><div class="qfill" style="width:${pct}%"></div></div>`+
+         `<div class="qmeta">${esc(t.status)} · ${pct}%${(t.entities&&t.entities.length)?" · "+t.entities.map(esc).join(", "):""}</div>`+
+         ((t.seed||t.payoff)?`<div class="qseed">${t.seed?"seed: "+esc(t.seed):""}${(t.seed&&t.payoff)?" → ":""}${t.payoff?esc(t.payoff):""}</div>`:"")+`</div>`;
+    }
+  }
+  $("reader").innerHTML=h+(any?"":`<div style="color:var(--muted);font-size:12px;margin-top:10px">no threads yet — they open as you play, or add one.</div>`);
+}
+
+// the memories record — what's true, what's happened (events + closed arcs), the archive size
+async function renderMemories(){
+  const st=window._st||{};
+  const facts=Object.entries(st.state||{}).map(([k,v])=>`<span class="fact"><b>${esc(k)}</b> ${esc(String(v))}</span>`).join("");
+  let ths=[];try{ths=(await (await fetch("/api/threads")).json()).threads||[];}catch(e){}
+  const resolved=ths.filter(t=>t.status==="resolved");
+  let g={nodes:[]};try{g=await (await fetch("/api/graph")).json();}catch(e){}
+  const events=(g.nodes||[]).filter(n=>n.kind==="event");
+  const rep=(st.reputation||[]).filter(r=>r&&r.who);
+  let h=`<h2>memories</h2><div class="kind">what the world remembers — the consolidated record</div>`;
+  h+=`<div class="memh">what's true now</div>`+(facts?`<div class="facts">${facts}</div>`:`<span style="color:var(--muted);font-size:12px">nothing recorded yet</span>`);
+  if(rep.length){h+=`<div class="memh">how the world regards you</div>`+rep.map(r=>{const col=r.standing>0?"#7fd18a":r.standing<0?"#d67f7f":"var(--muted)";return `<div style="font-size:12.5px"><b style="color:${col}">${esc(r.label)}</b> · ${esc(r.who)}</div>`;}).join("");}
+  if(events.length){h+=`<div class="memh">what's happened</div>`+events.map(n=>`<div class="ev" onclick="openNode('${n.name.replace(/'/g,"")}')"><span class="evk">event</span>${esc(n.name)}</div>`).join("");}
+  if(resolved.length){h+=`<div class="memh">closed arcs</div>`+resolved.map(t=>`<div class="ev" style="cursor:default"><span class="evk">✓</span>${esc(t.question)}</div>`).join("");}
+  h+=`<div class="memh">the archive</div><div style="font-size:12.5px;color:var(--muted)">${(g.nodes||[]).length} nodes remembered · <a class="addlink" onclick="openGraph()">open the map</a></div>`;
+  $("reader").innerHTML=h;
+}
 // the node map, as a pop-up
 async function openGraph(){await loadGraph();$("graphmodal").classList.add("open");}
 function closeGraph(){$("graphmodal").classList.remove("open");}
@@ -329,7 +390,7 @@ async function renderReader(st){
     (rep.length?`<div class="kind" style="margin-top:12px">how the world regards you</div>`+repHtml:"")+
     `<div class="kind" style="margin-top:14px">the plan · <a class="addlink" onclick="addThread()">＋ thread</a></div>`+
     (plan||`<span style="color:var(--muted);font-size:12px">nothing ripening yet</span>`)+ck;
-  $("tab_cont").classList.add("on");$("detailwhat").textContent="";
+  _setTab("tab_cont");$("detailwhat").textContent="";
 }
 
 async function loadGraph(){
@@ -376,11 +437,26 @@ async function loadWorlds(){
   $("worldsel").innerHTML=(w.campaigns||[]).map(n=>`<option${n===w.active?" selected":""}>${esc(n)}</option>`).join("")+`<option value="__new__">＋ new world…</option>`;
 }
 
+// degrees of freedom: three presets over the depth dial + mechanics (see docs/SALVAGE.md)
+const MODES=[["story","✍ writing a story",{depth:0.5,mechanics:false}],
+             ["campaign","⚔ real campaign",{depth:1.0,mechanics:true}],
+             ["power","★ power fantasy",{depth:0,mechanics:false}]];
+function currentMode(c){const d=c.depth||0,m=!!c.mechanics;
+  if(d<=0.01&&!m)return"power"; if(d>=0.8&&m)return"campaign"; if(Math.abs(d-0.5)<0.26&&!m)return"story"; return"";}
+function fillModes(c){const cur=currentMode(c);
+  $("modesel").innerHTML=(cur?"":`<option value="" selected>• custom</option>`)+
+    MODES.map(([k,l])=>`<option value="${k}"${k===cur?" selected":""}>${l}</option>`).join("");}
+async function applyMode(){const p=MODES.find(m=>m[0]===$("modesel").value); if(!p)return;
+  await fetch("/api/config",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(p[2])});
+  CFG={...CFG,...p[2]}; addTurn("sys",`mode → ${p[1].replace(/^\S+\s/,"")} (depth ${p[2].depth}, dice ${p[2].mechanics?"on":"off"}).`);
+  await loadState();}
+
 async function loadState(){
   const st=await (await fetch("/api/state")).json();
   window._st=st;                       // cached so 'continuity' can re-render without a refetch
   await loadWorlds();
   try{CFG=await (await fetch("/api/config")).json();}catch(e){}
+  fillModes(CFG);
   $("undo").disabled=!st.can_undo;
   $("model").textContent=st.model.replace(/^https?:\/\//,"");
   $("log").innerHTML="";
@@ -497,6 +573,7 @@ $("sleep").addEventListener("click",async()=>{
   await loadState();
 });
 
+$("modesel").addEventListener("change",applyMode);
 $("worldsel").addEventListener("change",async()=>{
   if($("worldsel").value==="__new__"){ newWorld(); return; }
   await fetch("/api/use",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:$("worldsel").value})});
