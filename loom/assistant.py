@@ -1,4 +1,4 @@
-"""loom.assistant — Orbit: an out-of-character game-master console.
+"""loom.assistant — Oracle: an out-of-character game-master console.
 
 A NON-DIEGETIC side-channel that lives OUTSIDE the seal. It answers meta/OOC questions about the
 world and the rules, and helps craft the world — but it is NOT a second narrator. Nothing it says
@@ -19,7 +19,7 @@ from . import llm, canon, threads
 _JSON_RE = re.compile(r"\{[\s\S]*\}")
 _KINDS = ("character", "place", "faction", "event", "lore")
 
-_SYSTEM = """You are Orbit, an OUT-OF-CHARACTER assistant for a solo storytelling game (loom). You help \
+_SYSTEM = """You are Oracle, an OUT-OF-CHARACTER assistant for a solo storytelling game (loom). You help \
 the player understand and shape their world. You are NOT the narrator and you never speak in-story or \
 advance the plot.
 

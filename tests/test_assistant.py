@@ -1,4 +1,4 @@
-"""Orbit (the OOC assistant): its actions are normalized to a tiny safe vocabulary — create a node /
+"""Oracle (the OOC assistant): its actions are normalized to a tiny safe vocabulary — create a node /
 add a thread / change depth+mechanics only — so a garbled or over-reaching reply can't touch anything
 on its own, and it grounds its answers in canon. The player still approves every action. Offline."""
 import tempfile

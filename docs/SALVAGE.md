@@ -52,7 +52,7 @@ bm25/cosine/rrf). Everything below is round-2+.
 - `somnus.py:802-840` **detector registry** — pluggable read-only continuity checks (contradiction/dangling-thread/timeline/uninitialized-entity), severity-ranked, advisory-only — *clean (~40 ln; write your own detectors)*
 - `somnus.py:603,652` **observation store** — atomic concurrent appends + windowed reader that stays cheap as the campaign grows — *clean (~60 ln)*
 - `personality_chip/dynamics.py` **spring_step/guard_k** — living tonal register that springs back to baseline (minimal kernel of will_governor — take one)
-- `static/tron/app.js:230-407` **mountNeuronMap (3D clustered orbit)** — canon clustered by domain, layout-stable — *thin (~180 ln; only if you want 3D over 2D)*
+- `static/tron/app.js:230-407` **mountNeuronMap (3D clustered oracle)** — canon clustered by domain, layout-stable — *thin (~180 ln; only if you want 3D over 2D)*
 - `modules/workflow.py` **run_workflow** — a turn/scene as a scriptable YAML DAG with an injection-safe ast-whitelist evaluator — *thin*
 - `modules/autotelic.py` **select_by_weight + MAP-Elites** — weighted beat picker + anti-repetition archive over a long narration — *thin (~50 ln)*
 - `modules/core/contracts.py` **banned_phrases** — strip reasoning-leak openers ("Let me set the scene") — *thin (copy the list)*
@@ -103,7 +103,7 @@ groups · Main · Antagonists · Side · Passing), with the node map as a pop-up
 2. **Threads board + memories views** — center-pane tabs beside continuity. Keep the label
    **"threads"** (not "quest book"), but present the board quest-book-style; a **memories** tab
    surfaces consolidated canon as the record.
-3. **Orbit-style assistant** — a non-diegetic OOC side-channel (answer meta questions, help craft
+3. **Oracle-style assistant** — a non-diegetic OOC side-channel (answer meta questions, help craft
    the world via generate/consolidate/node-edit, tune the GM/config). HARD RULE: lives OUTSIDE the
    seal — reads canon + config, PROPOSES gated edits, never writes narration or bypasses the
    consolidation diode. A GM console, not a second narrator.

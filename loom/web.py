@@ -183,7 +183,7 @@ def make_handler(cfg: dict):
                 # take back the last turn — restores transcript, threads, tension, location
                 return self._send(200, {"undone": undo.undo(tpath, spath)})
             if u.path == "/api/assist":
-                # Orbit: an OUT-OF-CHARACTER assistant. Its reply never enters the transcript/canon,
+                # Oracle: an OUT-OF-CHARACTER assistant. Its reply never enters the transcript/canon,
                 # and its actions are PROPOSALS the player applies via the gated author endpoints.
                 msg = (body.get("message") or "").strip()
                 if not msg:
