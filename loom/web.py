@@ -200,7 +200,7 @@ def make_handler(cfg: dict):
                                             "threads_resolved": [], "summary": "nothing to consolidate"})
                 try:
                     existing = threads.load(spath.parent / "threads.json")
-                    return self._send(200, consolidate.propose(cfg, lines, existing))
+                    return self._send(200, consolidate.propose(cfg, lines, existing, world=world))
                 except Exception as e:
                     return self._send(502, {"error": str(e)})
             if u.path == "/api/consolidate/apply":

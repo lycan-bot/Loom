@@ -74,7 +74,7 @@ def cmd_consolidate(cfg, auto):
     print("reading the session log…")
     existing = threads.load(spath.parent / "threads.json")
     try:
-        proposals = consolidate.propose(cfg, lines, existing)
+        proposals = consolidate.propose(cfg, lines, existing, world=world)
     except Exception as e:
         print(f"[!] consolidation failed ({e}); nothing written.")
         return

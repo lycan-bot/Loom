@@ -6,11 +6,51 @@ narrator grounded in curated truth instead of drifting on its own improv (the
 write→re-read collapse the Sigilus floor exists to prevent, in miniature).
 """
 from __future__ import annotations
-import json, re
+import difflib
+import json
+import re
 from pathlib import Path
 from . import llm, canon, state, threads, reputation
 
 _JSON_RE = re.compile(r"\{[\s\S]*\}")
+
+# generic words that must NOT anchor a fuzzy merge (many colleges, many orders) — a match needs a
+# DISTINCTIVE shared token (a proper-noun-ish word), so "The Silent Order" won't fold into "The Orders"
+_GENERIC = {"the", "a", "an", "of", "college", "order", "orders", "guild", "hall", "tower", "house",
+            "school", "academy", "city", "town", "statutes", "council", "company", "band", "keep"}
+
+
+def _norm(s) -> str:
+    s = re.sub(r"^\s*the\s+", "", str(s).strip().lower())
+    return re.sub(r"[^a-z0-9 ]+", "", s).strip()
+
+
+def _resolve_existing(world, name: str):
+    """The existing canon node a proposed name refers to — exact, or a CONFIDENT near-miss the
+    archivist invented ('The Inquisitor' → 'Inquisitor Vael') — else None (a genuinely new entity).
+    Conservative: when unsure it returns None (create a new node), never a wrong merge, so new
+    content is never silently swallowed into the wrong node."""
+    exact = canon.read_node(world, name)
+    if exact is not None:
+        return exact["name"]
+    n = _norm(name)
+    if not n:
+        return None
+    fuzzy = None
+    for node in canon.load_all(world):
+        ex = node["name"]
+        e = _norm(ex)
+        if not e:
+            continue
+        if n == e:
+            return ex                                        # identical after stripping the/punct/case
+        nt, et = set(n.split()), set(e.split())
+        sig = {w for w in (nt & et) if len(w) > 3 and w not in _GENERIC}
+        if sig and (nt <= et or et <= nt):                   # one name's tokens ⊆ the other, sharing a
+            return ex                                        # distinctive word → the same entity
+        if difflib.SequenceMatcher(None, n, e).ratio() >= 0.9:
+            fuzzy = ex                                        # very close spelling (typo/variant)
+    return fuzzy
 
 
 def _dicts(x):
@@ -120,6 +160,10 @@ Also tend the STORY THREADS — the open dramatic questions and pending tensions
 story momentum. Currently open threads:
 %s
 
+EXISTING CANON NODES — when an update concerns one of these, use its EXACT name below so it MERGES \
+into that node instead of forking a near-duplicate. Only invent a NEW name for a genuinely new entity:
+%s
+
 Respond with ONE json object:
 {
   "nodes":   [{"name": "...", "body": "markdown, may use [[links]]", "kind": "character|place|faction|event|lore", "fields": {"role": "(character only) who/what they are, short", "met": "(character only) when + where they were first met"}}],
@@ -161,7 +205,7 @@ _SCHEMA = {
 }
 
 
-def propose(cfg: dict, session_lines: list[dict], existing_threads=None) -> dict:
+def propose(cfg: dict, session_lines: list[dict], existing_threads=None, world=None) -> dict:
     """Ask the model for proposed canon/state/thread changes. Returns a dict; writes nothing.
 
     `existing_threads` (Thread objects) are shown to the archivist so it can avoid opening
@@ -178,8 +222,10 @@ def propose(cfg: dict, session_lines: list[dict], existing_threads=None) -> dict
         ccfg["api_key"] = cfg["consolidate_api_key"]
     open_str = "\n".join(f"- [{t.id}] {t.question}" for t in (existing_threads or [])
                          if getattr(t, "status", "") != "resolved") or "(none yet)"
+    roster_str = ("\n".join(f"- {n['name']} ({n['frontmatter'].get('kind', 'lore')})"
+                            for n in canon.load_all(world)) or "(none yet)") if world is not None else "(none yet)"
     log_text = "\n".join(f"{e.get('role', '?')}: {e.get('text', '')}" for e in session_lines)
-    raw = llm.complete(_PROMPT % (open_str, log_text), ccfg, max_tokens=1400, temperature=0.2,
+    raw = llm.complete(_PROMPT % (open_str, roster_str, log_text), ccfg, max_tokens=1400, temperature=0.2,
                        response_format={"type": "json_schema",             # token-level grammar (enforced)
                                         "json_schema": {"name": "consolidation", "schema": _SCHEMA}})
     m = _JSON_RE.search(raw)
@@ -208,11 +254,13 @@ def apply(proposals: dict, world: Path, state_path: Path, approve) -> dict:
         name, body, fields = node["name"], node["body"], node["fields"]
         if not approve("node", name, node):
             continue
-        existing = canon.read_node(world, name)
-        if existing is None:                                      # create, with any card fields
+        resolved = _resolve_existing(world, name)                # a near-miss the archivist invented
+        existing = canon.read_node(world, resolved) if resolved else None
+        if existing is None:                                      # genuinely new → create it
             canon.write_node(world, name, body, {"kind": node["kind"], **fields})
             written["nodes"].append(name)
             continue
+        name = existing["name"]                                   # merge under the CANONICAL name, not the dup
         fm = dict(existing["frontmatter"])                        # preserve drives, voice, etc.
         new_body, touched = existing["body"], False
         if body and body not in existing["body"]:                 # append novel content
