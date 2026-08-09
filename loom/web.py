@@ -182,6 +182,25 @@ def make_handler(cfg: dict):
             if u.path == "/api/undo":
                 # take back the last turn — restores transcript, threads, tension, location
                 return self._send(200, {"undone": undo.undo(tpath, spath)})
+            if u.path == "/api/continue":
+                # ⤵ extend the last narration (does not advance the plan/tension)
+                try:
+                    return self._send(200, {"narrator": narrate.resume(cfg, tpath, world, spath)})
+                except llm.LLMError as e:
+                    return self._send(502, {"error": str(e)})
+            if u.path == "/api/retry":
+                # ↻ re-roll the last turn fresh (undo + re-narrate the same input)
+                try:
+                    text = narrate.retry(cfg, tpath, world, spath)
+                except llm.LLMError as e:
+                    return self._send(502, {"error": str(e)})
+                if text is None:
+                    return self._send(200, {"narrator": None})
+                try:
+                    world_pulse = worldturn.maybe_round(cfg, world, spath)
+                except Exception:
+                    world_pulse = []
+                return self._send(200, {"narrator": text, "world": world_pulse})
             if u.path == "/api/assist":
                 # Oracle: an OUT-OF-CHARACTER assistant. Its reply never enters the transcript/canon,
                 # and its actions are PROPOSALS the player applies via the gated author endpoints.

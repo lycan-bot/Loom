@@ -41,3 +41,23 @@ def read_all(path: Path) -> list[dict]:
 
 def recent(path: Path, n: int) -> list[dict]:
     return read_all(path)[-n:]
+
+
+def rewrite(path: Path, entries: list[dict]) -> None:
+    """Replace the whole log with `entries` (used to MERGE a 'Continue' into the last beat).
+    Atomic — a torn write can't corrupt the transcript."""
+    import os
+    import tempfile
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write("".join(json.dumps(e, ensure_ascii=False) + "\n" for e in entries))
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise

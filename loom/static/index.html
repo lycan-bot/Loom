@@ -120,6 +120,8 @@
     <form id="f">
       <input id="input" autocomplete="off" placeholder="What do you do?">
       <button id="send" type="submit">Send</button>
+      <button id="continue" class="ghost" type="button" title="Continue the last narration" disabled>⤵ Continue</button>
+      <button id="retry" class="ghost" type="button" title="Re-roll the last turn" disabled>↻ Retry</button>
       <button id="undo" class="ghost" type="button" title="Take back the last turn" disabled>↩ Undo</button>
       <button id="consolidate" class="ghost" type="button" title="Fold this session into canon">Consolidate</button>
       <button id="imagine" class="ghost" type="button" title="Dream a new thread from the canon">Imagine</button>
@@ -512,6 +514,8 @@ async function loadState(){
   try{CFG=await (await fetch("/api/config")).json();}catch(e){}
   fillModes(CFG);
   $("undo").disabled=!st.can_undo;
+  const _hasNarr=(st.transcript||[]).some(e=>e.role==="narrator");
+  $("continue").disabled=!_hasNarr;$("retry").disabled=!_hasNarr;
   $("model").textContent=st.model.replace(/^https?:\/\//,"");
   $("log").innerHTML="";
   for(const e of st.transcript) addTurn(e.role,e.text);
@@ -546,7 +550,7 @@ async function streamTurn(t,think){
       if(ev==="token"){acc+=d.t;setBub(acc);}
       else if(ev==="replace"){acc=d.text;setBub(acc);}                 // guard/referee corrected the on-screen text
       else if(ev==="world"){if(d.world&&d.world.length)addWorld(d.world);}
-      else if(ev==="done"){acc=d.narrator;setBub(acc);$("mdot").className="dot ok";$("undo").disabled=false;await refreshWorld();}
+      else if(ev==="done"){acc=d.narrator;setBub(acc);$("mdot").className="dot ok";$("undo").disabled=false;$("continue").disabled=false;$("retry").disabled=false;await refreshWorld();}
       else if(ev==="error"){bub.remove();addTurn("sys","⚠ "+(d.error||"stream failed")+"  (is ./serve.sh running?)");$("mdot").className="dot bad";}
     }
   }
@@ -564,7 +568,7 @@ $("f").addEventListener("submit",async ev=>{
     else{
       const r=await fetch("/api/turn",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({input:t})});
       const j=await r.json();think.remove();
-      if(r.ok){addTurn("narrator",j.narrator);if(j.world&&j.world.length)addWorld(j.world);$("mdot").className="dot ok";$("undo").disabled=false;await refreshWorld();}
+      if(r.ok){addTurn("narrator",j.narrator);if(j.world&&j.world.length)addWorld(j.world);$("mdot").className="dot ok";$("undo").disabled=false;$("continue").disabled=false;$("retry").disabled=false;await refreshWorld();}
       else{addTurn("sys","⚠ "+(j.error||"the narrator is silent")+"  (is ./serve.sh running?)");$("mdot").className="dot bad";}
     }
   }catch(e){think.remove();addTurn("sys","⚠ "+e);$("mdot").className="dot bad";}
@@ -579,6 +583,38 @@ $("undo").addEventListener("click",async()=>{
     if(j.undone){await loadState();addTurn("sys","↩ last turn taken back.");}
     else addTurn("sys","nothing to undo.");
   }catch(e){addTurn("sys","⚠ "+e);}
+});
+
+function replaceLastNarrator(text){
+  const bubbles=$("log").querySelectorAll(".turn.narrator");
+  const last=bubbles[bubbles.length-1];
+  if(last){last.innerHTML=mdToHtml(text);$("log").scrollTop=$("log").scrollHeight;}
+  else addTurn("narrator",text);
+}
+$("continue").addEventListener("click",async()=>{
+  $("continue").disabled=true;$("mdot").className="dot";
+  addTurn("sys","…the tale goes on…");const think=$("log").lastChild;
+  try{
+    const j=await (await fetch("/api/continue",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"})).json();
+    think.remove();
+    if(j.error){addTurn("sys","⚠ "+j.error+"  (is ./serve.sh running?)");$("mdot").className="dot bad";}
+    else if(j.narrator){replaceLastNarrator(j.narrator);$("mdot").className="dot ok";}
+    else addTurn("sys","nothing to continue.");
+  }catch(e){think.remove();addTurn("sys","⚠ "+e);$("mdot").className="dot bad";}
+  $("continue").disabled=false;$("input").focus();
+});
+$("retry").addEventListener("click",async()=>{
+  if(!confirm("Re-roll the last turn? This discards the current narration and generates a fresh one."))return;
+  $("retry").disabled=true;$("mdot").className="dot";
+  addTurn("sys","…re-rolling the moment…");const think=$("log").lastChild;
+  try{
+    const j=await (await fetch("/api/retry",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"})).json();
+    think.remove();
+    if(j.error){addTurn("sys","⚠ "+j.error+"  (is ./serve.sh running?)");$("mdot").className="dot bad";}
+    else if(j.narrator){await loadState();if(j.world&&j.world.length)addWorld(j.world);$("mdot").className="dot ok";}
+    else addTurn("sys","nothing to retry.");
+  }catch(e){think.remove();addTurn("sys","⚠ "+e);$("mdot").className="dot bad";}
+  $("retry").disabled=false;$("input").focus();
 });
 
 $("consolidate").addEventListener("click",async()=>{

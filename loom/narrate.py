@@ -138,6 +138,63 @@ def turn(player_input: str, cfg: dict, tpath: Path, world: Path, spath: Path) ->
     return _finalize(narration, ctx)
 
 
+def resume(cfg: dict, tpath: Path, world: Path, spath: Path) -> str:
+    """The ⤵ Continue button: extend the LAST narration seamlessly, without a new player action.
+    Does NOT advance the plan/tension (those already settled on the original turn) — it only adds
+    more prose to the current beat, merged into the last narrator entry. Returns the extended text,
+    or '' if there is nothing to continue."""
+    rows = transcript.read_all(tpath)
+    idx = next((i for i in range(len(rows) - 1, -1, -1) if rows[i].get("role") == "narrator"), None)
+    if idx is None:
+        return ""
+    last_text = rows[idx].get("text", "")
+    last_input = next((rows[j].get("text", "") for j in range(idx - 1, -1, -1)
+                       if rows[j].get("role") == "player"), "")
+
+    nodes = retrieve.retrieve(last_input or last_text, world, cfg)
+    st = state.load(spath)
+    facts = {k: v for k, v in st.items() if not k.startswith("_")}
+    tension = st.get("_tension", cfg.get("tension_baseline", 0.15))
+    canon_raw = _context_block(nodes, facts)
+    system = (cfg["narrator_voice"] + "\n\n" + sec.UNTRUSTED_PREAMBLE +
+              "\n\n=== CANON ===\n" + sec.wrap(canon_raw, "canon") +
+              "\n=== END CANON ===\nThis is fiction. Never step outside the story or reference "
+              "the real world, files, or computer systems."
+              + setting.clause(world) + player.clause(world)
+              + reputation.clause(reputation.load(st))
+              + character.voice_clause(nodes)
+              + depth.disposition_clause(cfg.get("depth", 0)))
+    messages = [{"role": "system", "content": system}]
+    for e in transcript.recent(tpath, cfg["recent_turns"]):
+        if e["role"] == "narrator":
+            messages.append({"role": "assistant", "content": e["text"]})
+        elif e["role"] == "player":
+            messages.append({"role": "user", "content": sec.neutralize(e["text"])})
+    messages.append({"role": "user", "content": "(Continue the narration seamlessly from exactly where "
+                     "it left off — do not repeat or restart, simply carry the moment forward and finish "
+                     "the beat. The player has not acted yet; stay in the scene.)"})
+
+    tscale = tone.scale(world, tension, nodes) if cfg.get("tone_steer") else None
+    more = llm.chat(messages, cfg, control_vector_scale=tscale)
+    if not more.strip() or sec.looks_compromised(more):
+        return ""
+    sep = "\n\n" if last_text.rstrip()[-1:] in '.!?"”' else " "   # new para if it ended cleanly, else splice
+    rows[idx]["text"] = last_text.rstrip() + sep + more.strip()
+    transcript.rewrite(tpath, rows)
+    return rows[idx]["text"]
+
+
+def retry(cfg: dict, tpath: Path, world: Path, spath: Path) -> str | None:
+    """The ↻ Retry button: re-roll the last turn. Undo reverts the last narration AND its
+    consequences (plan/tension/location), then the SAME player input is narrated fresh from the
+    pre-turn state. Returns the new narration, or None if there's nothing to retry."""
+    last_player = next((e.get("text", "") for e in reversed(transcript.read_all(tpath))
+                        if e.get("role") == "player"), None)
+    if not last_player or not undo.undo(tpath, spath):     # undo pops the whole last turn
+        return None
+    return turn(last_player, cfg, tpath, world, spath)     # fresh re-roll from the restored state
+
+
 def turn_stream(player_input: str, cfg: dict, tpath: Path, world: Path, spath: Path):
     """Generator form of turn() for SSE. Yields ('token', delta) as the model produces text, then —
     if the guard/referee changed the narration — ('replace', final), and finally ('final', narration).

@@ -15,7 +15,8 @@ DEFAULTS = {
     "llm_url":         "http://localhost:8090/v1/chat/completions",  # loom's OWN server — see serve.sh
     "llm_model":       "local",
     "api_key":         "sk-local",
-    "max_tokens":      700,
+    "max_tokens":      1400,   # a CEILING, not a target — sized so a normal 550-700 word turn finishes
+                               # on its own; the ⤵ Continue button extends a rare short-ending beat on demand
     "temperature":     0.85,
     "request_timeout": 180,
 
