@@ -12,7 +12,7 @@ the character's want and what holds them back, so it lands with dramatic weight.
 """
 from __future__ import annotations
 from dataclasses import dataclass
-from . import canon, threads
+from . import canon, threads, player
 
 
 @dataclass(frozen=True)
@@ -39,8 +39,8 @@ def drives(world) -> list:
     """Every character with a stated want → (name, Moral, entities-it-touches)."""
     out = []
     for n in canon.load_all(world):
-        if n["frontmatter"].get("kind") != "character":
-            continue
+        if n["frontmatter"].get("kind") != "character" or player.is_player(n):
+            continue                              # the PLAYER's want is their own to pursue, not a world drive
         want = str(n["frontmatter"].get("wants", "")).strip()
         if not want:
             continue

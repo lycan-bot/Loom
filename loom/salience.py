@@ -13,7 +13,7 @@ the world's fabric.
 from __future__ import annotations
 import re
 from pathlib import Path
-from . import canon, threads as _threads, transcript, state, reputation
+from . import canon, threads as _threads, transcript, state, reputation, player
 
 TIERS = ["world", "factions", "main", "antagonist", "side", "passing"]
 TIER_LABELS = {"world": "World", "factions": "Factions & groups", "main": "Main characters",
@@ -89,6 +89,9 @@ def classify(world: Path, tpath: Path, spath: Path) -> list:
         fm = n["frontmatter"]
         kind = fm.get("kind", "lore")
         name = n["name"]
+
+        if player.is_player(n):
+            continue                              # the player's own character isn't cast — it's you
 
         # factions/groups are the world's ORGANIZATIONS — filed under the world, not tiered as
         # individuals (a faction isn't a 'main character'). Their standing still colours the card.

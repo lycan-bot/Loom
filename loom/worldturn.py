@@ -16,7 +16,7 @@ to be MUTABLE — an NPC's own turn can carry them elsewhere, so groups form and
 from __future__ import annotations
 import json
 import re
-from . import canon, npc, llm, state
+from . import canon, npc, llm, state, player
 
 _JSON_RE = re.compile(r"\{[\s\S]*\}")
 _MAX_TURNS = 4          # groups that act per round — the world moves without flooding the prompt
@@ -63,8 +63,8 @@ def majors(world) -> list:
     places = {n["name"] for n in nodes if n["frontmatter"].get("kind") == "place"}
     out = []
     for n in nodes:
-        if n["frontmatter"].get("kind") != "character":
-            continue
+        if n["frontmatter"].get("kind") != "character" or player.is_player(n):
+            continue                              # the PLAYER's character never takes a world-round turn
         want = str(n["frontmatter"].get("wants", "")).strip()
         if not want:
             continue

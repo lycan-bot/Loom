@@ -17,11 +17,18 @@ from . import prompt_security as sec
 _TRUE = ("true", "1", "yes")
 
 
+def is_player(node) -> bool:
+    """True if this canon node is the player's OWN character. Excluded from the NPC machinery —
+    the world round, sleep drive-moves, the cast rail — because the PLAYER drives it, not the world
+    (having the world narrate the player's character acting on its own is the bug this prevents)."""
+    fm = node.get("frontmatter", {}) if isinstance(node, dict) else {}
+    return fm.get("kind") == "character" and str(fm.get("player", "")).strip().lower() in _TRUE
+
+
 def get(world):
     """The player-character node (a character flagged player: true), or None."""
     for n in canon.load_all(world):
-        fm = n["frontmatter"]
-        if fm.get("kind") == "character" and str(fm.get("player", "")).strip().lower() in _TRUE:
+        if is_player(n):
             return n
     return None
 
