@@ -76,7 +76,7 @@ class AskTest(unittest.TestCase):
         finally:
             llm.chat = orig
         self.assertIn("The Gull", cap["sys"])                  # canon grounds the prompt (no invention)
-        self.assertEqual(cap["rf"], {"type": "json_object"})   # grammar-constrained JSON
+        self.assertEqual(cap["rf"]["type"], "json_schema")     # ENFORCED grammar, not the soft hint
         self.assertEqual(out["reply"], "The Gull is a dockside tavern.")
 
 

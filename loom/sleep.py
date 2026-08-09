@@ -75,7 +75,10 @@ def advance(cfg, world, threads_path):
         ccfg["api_key"] = cfg["consolidate_api_key"]
     try:
         raw = llm.complete(_RECAP_PROMPT % (items_text, canon_text), ccfg, max_tokens=300,
-                           temperature=0.4, response_format={"type": "json_object"})
+                           temperature=0.4, response_format=llm.schema_format("sleep_recap", {
+                               "type": "object", "properties": {
+                                   "recap": {"type": "string"},
+                                   "resolved": {"type": "array", "items": {"type": "string"}}}}))
         m = _JSON_RE.search(raw)
         data = json.loads(m.group(0)) if m else {}
     except Exception:

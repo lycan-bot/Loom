@@ -139,5 +139,8 @@ def ask(cfg: dict, world: Path, spath: Path, history, message: str) -> dict:
         if cfg.get(src):
             acfg[dst] = cfg[src]
     raw = llm.chat(msgs, acfg, max_tokens=700, temperature=0.4,
-                   response_format={"type": "json_object"})
+                   response_format=llm.schema_format("oracle", {
+                       "type": "object", "properties": {
+                           "reply": {"type": "string"},
+                           "actions": {"type": "array", "items": {"type": "object"}}}}))
     return _parse(raw)

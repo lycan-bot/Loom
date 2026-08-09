@@ -77,7 +77,11 @@ def imagine_one(world, cfg, existing_threads=None, rng=None):
                             b=b["name"], b_body=b["body"][:500])
     try:
         raw = llm.complete(prompt, cfg, max_tokens=400, temperature=1.0,
-                           response_format={"type": "json_object"})
+                           response_format=llm.schema_format("dream", {
+                               "type": "object", "properties": {
+                                   "question": {"type": "string"},
+                                   "entities": {"type": "array", "items": {"type": "string"}},
+                                   "seed": {"type": "string"}, "payoff": {"type": "string"}}}))
         data = json.loads(_JSON_RE.search(raw).group(0))
     except Exception:
         return None

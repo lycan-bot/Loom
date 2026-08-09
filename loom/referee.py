@@ -79,7 +79,11 @@ def judge(player_input, narration, canon_text, cfg):
     raw = llm.complete(_PROMPT % (sec.wrap((canon_text or "")[:2000], "canon"),
                                   sec.wrap(player_input, "player"),
                                   sec.wrap(narration, "narration")), ccfg,
-                       max_tokens=150, temperature=0.1, response_format={"type": "json_object"})
+                       max_tokens=150, temperature=0.1,
+                       response_format=llm.schema_format("verdict", {
+                           "type": "object",
+                           "properties": {"verdict": {"type": "string", "enum": ["ok", "overruled"]},
+                                          "reason": {"type": "string"}}}))
     m = _JSON_RE.search(raw)
     data = json.loads(m.group(0)) if m else {}
     return data.get("verdict") == "overruled", (data.get("reason") or "").strip()

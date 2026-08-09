@@ -17,6 +17,8 @@ _JSON_RE = re.compile(r"\{[\s\S]*\}")
 
 _WORLD_KEYS = ("name", "premise", "genre", "age", "tech", "magic", "peoples", "tone", "body")
 _CHAR_KEYS = ("name", "role", "description", "voice", "wants", "bound", "location")
+_WORLD_SCHEMA = {"type": "object", "properties": {k: {"type": "string"} for k in _WORLD_KEYS}}
+_CHAR_SCHEMA = {"type": "object", "properties": {k: {"type": "string"} for k in _CHAR_KEYS}}
 
 _WORLD_PROMPT = """Invent a fresh, vivid setting for a story world%s. SURPRISE me — do not default to
 generic high-fantasy unless the roll genuinely lands there; reach for the unexpected. Decide concretely:
@@ -48,12 +50,11 @@ def _s(x) -> str:
     return x.strip() if isinstance(x, str) else ""
 
 
-def _ask(cfg, prompt, max_tokens, temperature) -> dict:
-    """One JSON round-trip, FAIL-SOFT. response_format json_object is NOT hard-enforced by every
-    server/model, so a wild model can still emit slightly-malformed JSON (a missing comma, a
-    truncation). Try lenient repair, then degrade to {} — a bad roll yields nothing, never a crash."""
-    raw = llm.complete(prompt, cfg, max_tokens=max_tokens, temperature=temperature,
-                       response_format={"type": "json_object"})
+def _ask(cfg, prompt, max_tokens, temperature, schema=None) -> dict:
+    """One JSON round-trip, FAIL-SOFT. With a schema it uses the ENFORCED json_schema grammar (valid
+    JSON from any model); the lenient repair + degrade-to-{} stays as a belt for truncation etc."""
+    rf = llm.schema_format("card", schema) if schema else {"type": "json_object"}
+    raw = llm.complete(prompt, cfg, max_tokens=max_tokens, temperature=temperature, response_format=rf)
     m = _JSON_RE.search(raw)
     if not m:
         return {}
@@ -67,7 +68,7 @@ def _ask(cfg, prompt, max_tokens, temperature) -> dict:
 def world(cfg, seed: str = "") -> dict:
     """Roll a world card (dict of _WORLD_KEYS). Writes nothing. A high-temp creative roll."""
     hint = f" from this seed — {seed}" if seed else ""
-    data = _ask(cfg, _WORLD_PROMPT % hint, 500, 1.0)
+    data = _ask(cfg, _WORLD_PROMPT % hint, 500, 1.0, _WORLD_SCHEMA)
     if not isinstance(data, dict):
         data = {}
     return {k: _s(data.get(k)) for k in _WORLD_KEYS}
@@ -82,7 +83,7 @@ def cast(cfg, world_card: dict, n: int = 3) -> list:
     out, seen = [], set()
     for _ in range(max(1, int(n))):
         avoid = (f"(Already in the story, do not reuse: {', '.join(sorted(seen))}.)\n" if seen else "")
-        card = {k: _s(v) for k, v in _ask(cfg, _CHAR_PROMPT % (desc, avoid), 400, 0.9).items()}
+        card = {k: _s(v) for k, v in _ask(cfg, _CHAR_PROMPT % (desc, avoid), 400, 0.9, _CHAR_SCHEMA).items()}
         card = {k: card.get(k, "") for k in _CHAR_KEYS}
         if card["name"] and card["name"].lower() not in seen:
             seen.add(card["name"].lower())

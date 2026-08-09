@@ -106,7 +106,12 @@ def run(cfg, world) -> dict:
         ccfg["api_key"] = cfg["consolidate_api_key"]
     try:
         raw = llm.complete(_ROUND_PROMPT % ("\n".join(lines), canon_text), ccfg, max_tokens=400,
-                           temperature=0.5, response_format={"type": "json_object"})
+                           temperature=0.5, response_format=llm.schema_format("world_round", {
+                               "type": "object", "properties": {"turns": {"type": "array", "items": {
+                                   "type": "object", "properties": {
+                                       "where": {"type": "string"},
+                                       "who": {"type": "array", "items": {"type": "string"}},
+                                       "beat": {"type": "string"}}}}}}))
         m = _JSON_RE.search(raw)
         data = json.loads(m.group(0)) if m else {}
     except Exception:

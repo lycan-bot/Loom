@@ -138,6 +138,29 @@ PLAY LOG:
 """
 
 
+# the server enforces json_schema as a token-level grammar (unlike json_object, a soft hint a wild RP
+# model ignores) — so consolidation gets valid JSON from ANY model. Permissive by design: no `required`
+# (the model omits empty sections), open `state`/`fields` maps, so the grammar shapes without starving.
+_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "nodes": {"type": "array", "items": {"type": "object", "properties": {
+            "name": {"type": "string"}, "body": {"type": "string"},
+            "kind": {"type": "string"}, "fields": {"type": "object"}}}},
+        "state": {"type": "object"},
+        "threads_new": {"type": "array", "items": {"type": "object", "properties": {
+            "question": {"type": "string"}, "entities": {"type": "array", "items": {"type": "string"}},
+            "seed": {"type": "string"}, "payoff": {"type": "string"}}}},
+        "threads_resolved": {"type": "array", "items": {"type": "string"}},
+        "character_updates": {"type": "array", "items": {"type": "object", "properties": {
+            "name": {"type": "string"}, "disposition": {"type": "string"}, "location": {"type": "string"}}}},
+        "reputation": {"type": "array", "items": {"type": "object", "properties": {
+            "who": {"type": "string"}, "delta": {"type": "integer"}, "because": {"type": "string"}}}},
+        "summary": {"type": "string"},
+    },
+}
+
+
 def propose(cfg: dict, session_lines: list[dict], existing_threads=None) -> dict:
     """Ask the model for proposed canon/state/thread changes. Returns a dict; writes nothing.
 
@@ -157,7 +180,8 @@ def propose(cfg: dict, session_lines: list[dict], existing_threads=None) -> dict
                          if getattr(t, "status", "") != "resolved") or "(none yet)"
     log_text = "\n".join(f"{e.get('role', '?')}: {e.get('text', '')}" for e in session_lines)
     raw = llm.complete(_PROMPT % (open_str, log_text), ccfg, max_tokens=1400, temperature=0.2,
-                       response_format={"type": "json_object"})   # grammar-guaranteed valid JSON
+                       response_format={"type": "json_schema",             # token-level grammar (enforced)
+                                        "json_schema": {"name": "consolidation", "schema": _SCHEMA}})
     m = _JSON_RE.search(raw)
     if not m:
         raise ValueError(f"no JSON object in consolidation output: {raw[:200]}")

@@ -117,6 +117,13 @@ def chat_stream(messages: list[dict], cfg: dict, max_tokens: int | None = None,
         resp.close()
 
 
+def schema_format(name: str, schema: dict) -> dict:
+    """An ENFORCED response_format: the server applies the JSON schema as a token-level grammar, so
+    even a wild RP model emits valid, correctly-shaped JSON. Prefer this over {"type":"json_object"},
+    which loom's llama.cpp treats as a soft hint the model can (and does) ignore — producing prose."""
+    return {"type": "json_schema", "json_schema": {"name": name, "schema": schema}}
+
+
 def complete(prompt: str, cfg: dict, system: str | None = None, **kw) -> str:
     messages: list[dict] = []
     if system:
