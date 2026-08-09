@@ -1,5 +1,9 @@
 # Scene Memory — Phase 1 spec (active / working memory)
 
+> **BUILT.** Default ON, hybrid shape (discrete FACTS + a short prose RECAP), cadence a tuneable
+> ⚙ dial (`memory_every`). Surfaced in the ◷ memories tab ("what the narrator holds in mind").
+
+
 **Goal.** Stop the narrator forgetting details established in play once they scroll out of the
 recent-turns window (e.g. the primordial names). A compact, auto-maintained "story so far" is kept
 in context so early scenes stay remembered — **without** breaking the diode (never promoted to canon

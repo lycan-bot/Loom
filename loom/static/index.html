@@ -223,6 +223,8 @@ async function renderMemories(){
   const events=(g.nodes||[]).filter(n=>n.kind==="event");
   const rep=(st.reputation||[]).filter(r=>r&&r.who);
   let h=`<h2>memories</h2><div class="kind">what the world remembers — the consolidated record</div>`;
+  const mem=(st.memory||"").trim();
+  if(mem){h+=`<div class="memh">what the narrator holds in mind</div><div class="body" style="white-space:pre-wrap;font-size:12.5px;color:#cbc6bc">${esc(mem)}</div>`;}
   h+=`<div class="memh">what's true now</div>`+(facts?`<div class="facts">${facts}</div>`:`<span style="color:var(--muted);font-size:12px">nothing recorded yet</span>`);
   if(rep.length){h+=`<div class="memh">how the world regards you</div>`+rep.map(r=>{const col=r.standing>0?"#7fd18a":r.standing<0?"#d67f7f":"var(--muted)";return `<div style="font-size:12.5px"><b style="color:${col}">${esc(r.label)}</b> · ${esc(r.who)}</div>`;}).join("");}
   if(events.length){h+=`<div class="memh">what's happened</div>`+events.map(n=>`<div class="ev" onclick="openNode('${n.name.replace(/'/g,"")}')"><span class="evk">event</span>${esc(n.name)}</div>`).join("");}
@@ -393,11 +395,13 @@ async function editSettings(){
     `<label style="display:block"><input type="checkbox" id="s_mech" ${c.mechanics?"checked":""}> dice — an impartial d20 on uncertain actions</label>`+
     `<label style="display:block"><input type="checkbox" id="s_tone" ${c.tone_steer?"checked":""}> dynamic tone — the narrator's register follows the scene (needs the tone vector served)</label>`+
     `<label style="display:block"><input type="checkbox" id="s_stream" ${c.stream?"checked":""}> stream narration — the story appears word by word as it's written</label>`+
+    `<label style="display:block;margin-top:8px"><input type="checkbox" id="s_mem" ${c.scene_memory?"checked":""}> story memory — keep a running 'story so far' so early details aren't forgotten</label>`+
+    `<label>memory refresh · every N turns</label><select id="s_memevery">`+[2,3,4,6,8,10].map(v=>`<option value="${v}"${(c.memory_every||4)==v?" selected":""}>${v}</option>`).join("")+`</select>`+
     `<div class="row"><button onclick="saveSettings()">Apply</button><button class="ghost" onclick="showContinuity()">Close</button></div></div>`;
 }
 async function saveSettings(){
   await fetch("/api/config",{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({depth:parseFloat($("s_depth").value),world_rounds:$("s_world").checked,mechanics:$("s_mech").checked,tone_steer:$("s_tone").checked,stream:$("s_stream").checked})});
+    body:JSON.stringify({depth:parseFloat($("s_depth").value),world_rounds:$("s_world").checked,mechanics:$("s_mech").checked,tone_steer:$("s_tone").checked,stream:$("s_stream").checked,scene_memory:$("s_mem").checked,memory_every:parseInt($("s_memevery").value)})});
   CFG.stream=$("s_stream").checked;
   addTurn("sys","session settings applied.");await loadState();
 }

@@ -46,6 +46,9 @@ DEFAULTS = {
     "world_cadence":    3,      # when the toggle is on, the world takes a round every N player turns
     "tone_steer":       False,  # dynamic tone: send a per-turn control-vector scale (needs the tone vector served)
     "stream":           False,  # stream narration token-by-token (SSE); guard+referee still finalize authoritatively
+    "scene_memory":     True,   # keep an advisory 'story so far' in context so details don't scroll out (never canon)
+    "memory_every":     4,      # refresh the working memory every N turns (the cadence dial)
+    "memory_lines":     10,     # cap on the working-memory fact list
 
     # --- which campaign is live ---
     "campaign":        "example",

@@ -65,6 +65,7 @@ def make_handler(cfg: dict):
                     "canon": _graph(world)["nodes"],
                     "state": {k: v for k, v in st_all.items() if not k.startswith("_")},
                     "location": st_all.get("_location", ""),
+                    "memory": st_all.get("_memory", "") if cfg.get("scene_memory") else "",
                     "reputation": [{"who": w, "standing": int(e.get("standing", 0) or 0),
                                     "label": reputation.label(int(e.get("standing", 0) or 0)),
                                     "log": [s for s in (e.get("log") or []) if isinstance(s, str)]}
@@ -111,7 +112,9 @@ def make_handler(cfg: dict):
                                         "world_rounds": bool(cfg.get("world_rounds")),
                                         "world_cadence": cfg.get("world_cadence", 3),
                                         "tone_steer": bool(cfg.get("tone_steer")),
-                                        "stream": bool(cfg.get("stream"))})
+                                        "stream": bool(cfg.get("stream")),
+                                        "scene_memory": bool(cfg.get("scene_memory")),
+                                        "memory_every": cfg.get("memory_every", 4)})
             if u.path == "/api/setting":
                 return self._send(200, setting.card(world))
             return self._send(404, {"error": "not found"})
@@ -302,6 +305,13 @@ def make_handler(cfg: dict):
                     up["tone_steer"] = bool(body["tone_steer"])
                 if "stream" in body:
                     up["stream"] = bool(body["stream"])
+                if "scene_memory" in body:
+                    up["scene_memory"] = bool(body["scene_memory"])
+                if "memory_every" in body:
+                    try:
+                        up["memory_every"] = max(1, min(20, int(body["memory_every"])))
+                    except (TypeError, ValueError):
+                        pass
                 if up:
                     config.save(up)
                 return self._send(200, {"ok": True})
