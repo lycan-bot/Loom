@@ -69,6 +69,7 @@ def make_handler(cfg: dict):
                     "steer": st_all.get("_steer", {}) if cfg.get("tone_steer") else {},
                     "unconsolidated": max(0, len(transcript.read_all(tpath)) - int(st_all.get("_consolidated", 0) or 0)),
                     "auto_consolidate": bool(cfg.get("auto_consolidate")),
+                    "pending_canon": len(consolidate.pending(spath)),   # canon parked by auto-fold, awaiting bless
                     "reputation": [{"who": w, "standing": int(e.get("standing", 0) or 0),
                                     "label": reputation.label(int(e.get("standing", 0) or 0)),
                                     "log": [s for s in (e.get("log") or []) if isinstance(s, str)]}
@@ -90,6 +91,13 @@ def make_handler(cfg: dict):
                     {"id": t.id, "question": t.question, "kind": t.kind, "status": t.status,
                      "readiness": round(t.readiness, 2), "entities": t.entities, "seed": t.seed,
                      "payoff": t.payoff} for t in threads.load(spath.parent / "threads.json")]})
+            if u.path == "/api/pending":
+                # canon-node proposals auto-consolidation PARKED for the operator to bless (the diode's pen) —
+                # the fix for auto-fold silently dropping canon past the watermark
+                return self._send(200, {"nodes": [
+                    {"name": n.get("name", ""), "kind": n.get("kind", "lore"),
+                     "body": n.get("body", ""), "fields": n.get("fields") or {}}
+                    for n in consolidate.pending(spath)]})
             if u.path == "/api/check":
                 fs = guard.check(world, spath.parent / "threads.json")
                 return self._send(200, {"findings": [{"severity": f.severity, "kind": f.kind,
@@ -250,6 +258,17 @@ def make_handler(cfg: dict):
                         approve=lambda kind, name, _p: name in ok.get(kind, set()))
                     consolidate.mark_consolidated(                        # advance the watermark past these turns
                         spath, proposals.get("_total") or len(transcript.read_all(tpath)))
+                except Exception as e:
+                    return self._send(502, {"error": str(e)})
+                return self._send(200, {"written": written})
+            if u.path == "/api/pending/apply":
+                # bless the parked canon into the world-bible. approved_nodes (names) gates it; omit to
+                # bless all. A review pass is final — the pen is emptied either way (declined = dropped).
+                approved = body.get("approved_nodes")
+                approve = ((lambda kind, name, _p: name in set(approved))
+                           if isinstance(approved, list) else (lambda *a: True))
+                try:
+                    written = consolidate.apply_pending(world, spath, approve=approve)
                 except Exception as e:
                     return self._send(502, {"error": str(e)})
                 return self._send(200, {"written": written})

@@ -65,6 +65,17 @@ def _s(x, default=""):
     return x if isinstance(x, str) else default
 
 
+_PLACEHOLDER_KEYS = {"key", "value", "fact", "fact name", "fact_name", "factname"}
+
+
+def _real_key(k) -> bool:
+    """Reject the schema's example placeholder echoed back verbatim as a literal fact — a wild model
+    copies '{"key": "value"}' or a '<...>' template straight into its output. A real fact key is a
+    concrete name, never the template, so those are dropped before they pollute state."""
+    s = str(k).strip().lower()
+    return bool(s) and s not in _PLACEHOLDER_KEYS and "<" not in s and ">" not in s
+
+
 def _normalize(proposals: dict) -> dict:
     """Coerce grammar-valid-but-unshaped model output into clean, typed structures so the write
     loop can never crash on a bad type or leave a partial commit. Every malformed field is
@@ -117,7 +128,7 @@ def _normalize(proposals: dict) -> dict:
     resolved_raw = proposals.get("threads_resolved")
     return {
         "nodes": nodes,
-        "state": {str(k): v for k, v in proposals["state"].items()} if isinstance(proposals.get("state"), dict) else {},
+        "state": {str(k): v for k, v in proposals["state"].items() if _real_key(k)} if isinstance(proposals.get("state"), dict) else {},
         "threads_new": threads_new,
         "threads_resolved": [r for r in resolved_raw if isinstance(r, str)] if isinstance(resolved_raw, list) else [],
         "character_updates": updates,
@@ -167,7 +178,7 @@ into that node instead of forking a near-duplicate. Only invent a NEW name for a
 Respond with ONE json object:
 {
   "nodes":   [{"name": "...", "body": "markdown, may use [[links]]", "kind": "character|place|faction|event|lore", "fields": {"role": "(character only) who/what they are, short", "met": "(character only) when + where they were first met"}}],
-  "state":   {"key": "value"},
+  "state":   {"<a short snake_case fact name>": "<what is now true>"},
   "threads_new":      [{"question": "a NEW open dramatic question this session RAISED", "entities": ["canon names it involves"], "seed": "a subtle detail to foreshadow it later", "payoff": "what answering it might look like"}],
   "threads_resolved": ["<id of an open thread the session ANSWERED, if any>"],
   "character_updates": [{"name": "an existing character", "disposition": "how they now feel toward the player, ONLY if it clearly shifted this session", "location": "the place they are now, ONLY if they moved this session"}],
@@ -359,12 +370,56 @@ def mark_consolidated(spath, total: int) -> None:
     state.set_fact(spath, "_consolidated", int(total))
 
 
+def queue_pending(spath, nodes) -> None:
+    """Park proposed canon-node updates in `_pending_canon` for the operator to bless later — the
+    diode's holding pen. Auto consolidation applies the low-risk structured continuity itself but
+    PARKS canon here instead of dropping it (the original bug: advancing the watermark past
+    un-blessed nodes lost them forever, since those turns are never re-proposed). Dedup by name,
+    latest proposal wins."""
+    nodes = [n for n in (nodes or []) if isinstance(n, dict) and n.get("name")]
+    if not nodes:
+        return
+    st = state.load(spath)
+    q = st.get("_pending_canon")
+    by_name = {n["name"]: n for n in (q if isinstance(q, list) else [])
+               if isinstance(n, dict) and n.get("name")}
+    for n in nodes:
+        by_name[n["name"]] = n
+    st["_pending_canon"] = list(by_name.values())
+    state.save(spath, st)
+
+
+def pending(spath):
+    """The queued canon-node proposals awaiting the operator's bless (from auto consolidation)."""
+    q = state.load(spath).get("_pending_canon")
+    return [n for n in q if isinstance(n, dict) and n.get("name")] if isinstance(q, list) else []
+
+
+def apply_pending(world: Path, spath, approve=None) -> dict:
+    """Bless the queued canon into the world-bible, then empty the pen. `approve(kind, name, payload)`
+    gates each node (default: bless all); a review pass is final — declined nodes are dropped from the
+    queue too, so it never re-nags. Reuses the exact merge/dedup path a manual consolidate takes."""
+    pend = pending(spath)
+    if not pend:
+        return {"nodes": []}
+    if approve is None:
+        approve = lambda *a: True
+    written = apply({"nodes": pend, "state": {}, "threads_new": [], "threads_resolved": [],
+                     "character_updates": [], "reputation": []}, world, spath,
+                    lambda kind, name, p: kind == "node" and approve(kind, name, p))
+    st = state.load(spath)
+    st.pop("_pending_canon", None)
+    state.save(spath, st)
+    return written
+
+
 def auto(cfg, tpath, world, spath, apply_canon: bool = False):
     """Automated consolidation: propose from the NEW turns and fold in the result. Returns a report.
     The DIODE: by default only the low-risk structured continuity (state facts, reputation, character
     disposition/location, thread ripening) is auto-applied; new/edited CANON NODES and thread
-    RESOLUTION stay gated (queued) unless `apply_canon` is set — auto-authoring the world-bible
-    unattended is the write→re-read collapse this wall exists to prevent."""
+    RESOLUTION stay gated unless `apply_canon` is set — auto-authoring the world-bible unattended is
+    the write→re-read collapse this wall exists to prevent. Gated canon is PARKED in `_pending_canon`
+    (queue_pending), never dropped, so a later bless can still land it even though the watermark moved."""
     new_lines, total = unconsolidated(tpath, spath)
     if len([e for e in new_lines if e.get("role") == "player"]) < 1:
         return {"applied": {}, "pending_nodes": [], "summary": "", "new": len(new_lines)}
@@ -382,6 +437,11 @@ def auto(cfg, tpath, world, spath, apply_canon: bool = False):
 
     written = apply(proposals, world, spath, approve)
     mark_consolidated(spath, total)
-    pending = [n["name"] for n in _normalize(proposals)["nodes"]] if not apply_canon else []
-    return {"applied": written, "pending_nodes": pending,
+    pending_names = []
+    if not apply_canon:
+        norm_nodes = _normalize(proposals)["nodes"]
+        if norm_nodes:
+            queue_pending(spath, norm_nodes)          # PARK canon for bless — never drop it past the watermark
+            pending_names = [n["name"] for n in norm_nodes]
+    return {"applied": written, "pending_nodes": pending_names,
             "summary": proposals.get("summary", ""), "new": len(new_lines)}

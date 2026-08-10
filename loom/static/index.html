@@ -453,7 +453,8 @@ async function renderReader(st){
     (rep.length?`<div class="kind" style="margin-top:12px">how the world regards you</div>`+repHtml:"")+
     `<div class="kind" style="margin-top:14px">the plan · <a class="addlink" onclick="addThread()">＋ thread</a></div>`+
     (plan||`<span style="color:var(--muted);font-size:12px">nothing ripening yet</span>`)+ck+
-    ((st.unconsolidated||0)>=6?`<div style="font-size:11px;color:var(--muted);margin-top:12px">◆ ${st.unconsolidated} turns un-consolidated${st.auto_consolidate?" · auto-folding":" — hit Consolidate to fold them into memory"}</div>`:"");
+    ((st.unconsolidated||0)>=6?`<div style="font-size:11px;color:var(--muted);margin-top:12px">◆ ${st.unconsolidated} turns un-consolidated${st.auto_consolidate?" · auto-folding":" — hit Consolidate to fold them into memory"}</div>`:"")+
+    ((st.pending_canon||0)>0?`<div style="font-size:11px;margin-top:8px"><a class="addlink" onclick="reviewPending()">◆ ${st.pending_canon} canon update(s) auto-fold parked — review →</a></div>`:"");
   _setTab("tab_cont");$("detailwhat").textContent="";
 }
 
@@ -648,6 +649,24 @@ $("consolidate").addEventListener("click",async()=>{
   addTurn("sys",`folded: +${names.length} node(s), +${tnew.length} thread(s), ${tres.length} resolved.`);
   await loadState();
 });
+
+async function reviewPending(){
+  // bless the canon updates auto-consolidation parked in the pending pen (past the watermark, so the
+  // normal Consolidate flow can't re-surface them — this is their only path in)
+  const p=await (await fetch("/api/pending")).json();
+  const nodes=(p.nodes||[]);
+  if(!nodes.length){addTurn("sys","nothing parked to review.");return;}
+  const msg=`Auto-fold parked ${nodes.length} canon update(s):\n\n`+
+    nodes.map(n=>`• ${n.name} (${n.kind})`).join("\n")+
+    `\n\nOK = write them all into canon · Cancel = leave parked for later`;
+  if(!confirm(msg))return;
+  const r=await (await fetch("/api/pending/apply",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({approved_nodes:nodes.map(n=>n.name)})})).json();
+  if(r.error){addTurn("sys","⚠ "+r.error);return;}
+  const w=(r.written&&r.written.nodes)||[];
+  addTurn("sys",`blessed ${w.length} canon update(s) into the world.`);
+  await loadState();
+}
 
 $("imagine").addEventListener("click",async()=>{
   addTurn("sys","dreaming a new thread from the canon…");

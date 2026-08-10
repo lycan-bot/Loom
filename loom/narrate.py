@@ -5,6 +5,7 @@ the raw log as the memory-of-record. Canon is the source of truth; the recent
 transcript only carries the last few beats of conversational flow.
 """
 from __future__ import annotations
+import threading
 from pathlib import Path
 from . import llm, retrieve, transcript, state, pacing, threads, director, character, mechanics, referee, depth, player, setting, tone, undo, reputation, scene_memory, steer, consolidate
 from . import prompt_security as sec
@@ -140,9 +141,17 @@ def _finalize(narration: str, ctx: "_Ctx") -> str:
     return narration
 
 
+# the last background consolidation, so tests (and a clean shutdown) can join it. A daemon thread's
+# writes are atomic (state.save is mkstemp+os.replace), so being killed mid-fold can't tear a file.
+_auto_thread: "threading.Thread | None" = None
+
+
 def _maybe_auto_consolidate(cfg, tpath, world, spath):
-    """Every `consolidate_every` turns, auto-run an INCREMENTAL consolidate (only the new turns).
-    Diode-gated: canon nodes stay queued unless auto_consolidate_apply is set. Never raises."""
+    """Every `consolidate_every` turns, kick off an INCREMENTAL consolidate (only the new turns) on a
+    BACKGROUND thread, so folding never pauses play — the turn returns instantly while the archivist
+    reads behind it. Diode-gated: canon nodes are PARKED in the pending queue unless
+    auto_consolidate_apply is set. Never raises (a failed fold is silent; the cadence retries next time)."""
+    global _auto_thread
     every = max(2, int(cfg.get("consolidate_every", 8) or 8))
     st = state.load(spath)
     n = int(st.get("_cturn", 0) or 0) + 1
@@ -152,10 +161,17 @@ def _maybe_auto_consolidate(cfg, tpath, world, spath):
         return
     st["_cturn"] = 0
     state.save(spath, st)                               # reset first, so a failure doesn't retry every turn
-    try:
-        consolidate.auto(cfg, tpath, world, spath, apply_canon=bool(cfg.get("auto_consolidate_apply")))
-    except Exception:
-        pass
+
+    def _run():
+        try:
+            consolidate.auto(cfg, tpath, world, spath,
+                             apply_canon=bool(cfg.get("auto_consolidate_apply")))
+        except Exception:
+            pass
+
+    t = threading.Thread(target=_run, name="loom-auto-consolidate", daemon=True)
+    t.start()
+    _auto_thread = t
 
 
 def _maybe_update_memory(cfg, tpath, spath):
