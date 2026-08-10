@@ -272,8 +272,9 @@ def make_handler(cfg: dict):
                       "disposition": set(body.get("approved_dispositions") or []),
                       "location": set(body.get("approved_locations") or []),
                       "reputation": set(body.get("approved_reputation") or [])}
-                total = int(proposals.get("_total") or len(transcript.read_all(tpath)))
-                start = int(proposals.get("_start") or 0)
+                tlen = len(transcript.read_all(tpath))
+                total = min(int(proposals.get("_total") or tlen), tlen)   # never mark PAST the real transcript
+                start = max(0, int(proposals.get("_start") or 0))         #   (a stale/corrupt _total can't leap it)
                 try:
                     # SAME idempotent-reputation + combined-watermark save as the auto/drain path: deed-key
                     # on (start, total) so a re-run can't double-count, and the watermark advances in the

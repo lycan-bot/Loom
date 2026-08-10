@@ -152,6 +152,17 @@ class DeedKeyTest(unittest.TestCase):
         rep = reputation.load(state.load(camp / "state.json"))
         self.assertEqual(rep["X"]["standing"], 2)                               # legacy path still additive
 
+    def test_watermark_is_monotonic_against_stale_apply(self):
+        # a stale manual apply (dialog opened before a later fold advanced the watermark) must NOT
+        # regress _consolidated — else the turns between re-fold under a fresh deed-key and double-apply
+        camp = _camp()
+        state.set_fact(camp / "state.json", "_consolidated", 20)          # a later fold already reached 20
+        prop = {"nodes": [], "state": {"m": "v"}, "threads_new": [], "threads_resolved": [],
+                "character_updates": [], "reputation": []}
+        consolidate.apply(prop, camp / "world", camp / "state.json", lambda *a: True,
+                          deed_window=(0, 10), watermark=10)              # stale apply for the OLD window
+        self.assertEqual(state.load(camp / "state.json").get("_consolidated"), 20)  # NOT rolled back to 10
+
     def test_combined_watermark_saves_with_rep(self):
         camp = _camp()
         prop = {"nodes": [], "state": {"m": "v"}, "threads_new": [], "threads_resolved": [],

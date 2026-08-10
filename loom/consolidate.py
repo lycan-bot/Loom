@@ -347,8 +347,11 @@ def apply(proposals: dict, world: Path, state_path: Path, approve,
     if new_ids:                                       # remember what we folded (bounded — recent windows only)
         st["_rep_applied"] = (prev_applied + new_ids)[-_REP_APPLIED_CAP:]
         changed = True
-    if watermark is not None:                         # advance the watermark in the SAME save as _rep (no split)
-        st["_consolidated"] = int(watermark)
+    if watermark is not None:                         # advance the watermark in the SAME save as _rep (no split).
+        # MONOTONIC — never regress: a stale manual apply (its dialog opened BEFORE a later fold advanced
+        # the watermark) must not roll it back, or the turns between re-fold under a fresh deed-key and
+        # double-apply reputation. max() makes the write safe under an out-of-order/two-tab manual apply.
+        st["_consolidated"] = max(int(st.get("_consolidated", 0) or 0), int(watermark))
         changed = True
     if changed:
         state.save(state_path, st)
