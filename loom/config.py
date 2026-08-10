@@ -52,6 +52,15 @@ DEFAULTS = {
     "auto_consolidate": False,  # auto-fold new turns into memory every N turns (incremental; diode-gated)
     "auto_consolidate_apply": False,  # opt-in: let auto-consolidate write CANON NODES too (bypasses the bless)
     "consolidate_every": 8,     # auto-consolidation cadence (turns) — incremental, so it stays fast
+    "consolidate_window": 16,   # max turns folded per auto-pass — bounds a backlog into fast chunks (cap > cadence ⇒ catches up)
+    # sampler-level anti-repetition on NARRATION (the repetition is a sampling attractor a re-roll
+    # escapes; prompting can't reach it, so suppress the repeated path at the logit level on every roll)
+    "anti_repetition": True,
+    "dry_multiplier": 0.8,      # DRY sampler strength (0 = off) — penalizes repeating any recent n-gram sequence
+    "dry_base": 1.75,
+    "dry_allowed_length": 2,    # allow short repeats (bigrams) before penalizing, so common phrasing isn't punished
+    "frequency_penalty": 0.3,   # light lexical de-duplication (OpenAI-native; always honored)
+    "presence_penalty": 0.0,
 
     # --- which campaign is live ---
     "campaign":        "example",

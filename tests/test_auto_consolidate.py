@@ -128,6 +128,32 @@ class AutoTest(unittest.TestCase):
             llm.chat, llm.complete = oc, ocmp
 
 
+    def test_backlog_folds_in_capped_windows(self):
+        # a big backlog (e.g. after an undo reset the watermark) must fold in bounded chunks, not one
+        # giant timeout-prone call — the daemon's window is capped at wm + consolidate_window
+        camp = _camp()
+        canon.write_node(camp / "world", "Room", "a room")
+        for i in range(15):
+            transcript.append(camp / "t.jsonl", "player", f"p{i}")
+            transcript.append(camp / "t.jsonl", "narrator", f"n{i}")   # 30 entries, watermark 0 → big backlog
+        state.save(camp / "state.json", {"_consolidated": 0, "_cturn": 1})   # one more turn hits the cadence
+        cfg = dict(config.DEFAULTS)
+        cfg.update(auto_consolidate=True, consolidate_every=2, consolidate_window=16, scene_memory=False)
+        oc, ocmp = llm.chat, llm.complete
+        llm.chat = lambda *a, **k: "beat."
+        llm.complete = lambda *a, **k: '{"nodes":[],"state":{"x":"y"},"threads_new":[],"threads_resolved":[],"character_updates":[],"reputation":[]}'
+        try:
+            narrate.turn("go", cfg, camp / "t.jsonl", camp / "world", camp / "state.json")   # _cturn 0→1 → fires
+            if narrate._auto_thread:
+                narrate._auto_thread.join(timeout=10)
+        finally:
+            llm.chat, llm.complete = oc, ocmp
+        jobs = inbox.take(camp / "state.json")
+        self.assertEqual(len(jobs), 1)
+        self.assertEqual(jobs[0]["start"], 0)
+        self.assertEqual(jobs[0]["end"], 16)                            # capped at wm+16, NOT the full backlog
+
+
 class DeedKeyTest(unittest.TestCase):
     def test_deed_key_prevents_reputation_double_apply(self):
         # additive apply_delta must run at most once per (who, window); a re-fold of the SAME window

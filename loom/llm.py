@@ -44,6 +44,22 @@ def _post(url: str, payload: dict, api_key: str, timeout: int) -> dict:
         raise LLMError(f"model call failed: {e}")
 
 
+def _anti_repetition(cfg: dict) -> dict:
+    """Sampler-level anti-repetition params for NARRATION only (never the structured archivist calls,
+    which want clean JSON). The repetition on this model is a sampling attractor — a re-roll escapes
+    it — so DRY + a light frequency penalty make the repeated path LOSE at the logit level on every
+    roll, which no prompt directive achieves. A stock server ignores keys it doesn't know."""
+    if not cfg.get("anti_repetition"):
+        return {}
+    return {
+        "dry_multiplier": cfg.get("dry_multiplier", 0.8),
+        "dry_base": cfg.get("dry_base", 1.75),
+        "dry_allowed_length": cfg.get("dry_allowed_length", 2),
+        "frequency_penalty": cfg.get("frequency_penalty", 0.3),
+        "presence_penalty": cfg.get("presence_penalty", 0.0),
+    }
+
+
 def chat(messages: list[dict], cfg: dict, max_tokens: int | None = None,
          temperature: float | None = None, response_format=None, control_vector_scale=None) -> str:
     """One /v1/chat/completions round-trip → cleaned assistant text. `response_format`
@@ -59,6 +75,8 @@ def chat(messages: list[dict], cfg: dict, max_tokens: int | None = None,
     }
     if response_format:
         payload["response_format"] = response_format
+    else:
+        payload.update(_anti_repetition(cfg))          # narration only — never the structured (JSON) calls
     if control_vector_scale is not None:
         payload["control_vector_scale"] = control_vector_scale
     resp = _post(cfg["llm_url"], payload, cfg["api_key"], cfg["request_timeout"])
@@ -82,6 +100,7 @@ def chat_stream(messages: list[dict], cfg: dict, max_tokens: int | None = None,
         "temperature": cfg["temperature"] if temperature is None else temperature,
         "stream": True,
     }
+    payload.update(_anti_repetition(cfg))               # streaming is always narration → anti-repetition applies
     if control_vector_scale is not None:
         payload["control_vector_scale"] = control_vector_scale
     data = json.dumps(payload).encode("utf-8")

@@ -180,16 +180,21 @@ def _maybe_auto_consolidate(cfg, tpath, world, spath):
     total = len(transcript.read_all(tpath))
     if total <= wm:
         return
+    # CAP the window: a big backlog (e.g. after an undo rolled the watermark far back) folds in fast,
+    # reliable chunks instead of one giant model call that risks timing out and sitting forever. Each
+    # cadence chips off ≤ cap turns; since cap > the cadence, it also catches up while play continues.
+    cap = max(1, int(cfg.get("consolidate_window", 16) or 16))
+    end = min(total, wm + cap)
     existing = threads.load(spath.parent / "threads.json")   # read HERE (turn thread); the daemon stays isolated
     apply_canon = bool(cfg.get("auto_consolidate_apply"))
 
     def _run():
         try:
-            lines = transcript.read_all(tpath)[wm:total]
+            lines = transcript.read_all(tpath)[wm:end]
             if len([e for e in lines if e.get("role") == "player"]) < 1:
                 return
             proposals = consolidate.propose(cfg, lines, existing, world=world)
-            inbox.append(spath, {"start": wm, "end": total, "apply_canon": apply_canon,
+            inbox.append(spath, {"start": wm, "end": end, "apply_canon": apply_canon,
                                  "fp": consolidate.window_fingerprint(lines),   # bind the job to the EXACT turns
                                  "proposals": proposals})                       # it read (undo→replay ⇒ fp mismatch ⇒ drop)
         except Exception:
