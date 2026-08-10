@@ -6,7 +6,7 @@ transcript only carries the last few beats of conversational flow.
 """
 from __future__ import annotations
 from pathlib import Path
-from . import llm, retrieve, transcript, state, pacing, threads, director, character, mechanics, referee, depth, player, setting, tone, undo, reputation, scene_memory
+from . import llm, retrieve, transcript, state, pacing, threads, director, character, mechanics, referee, depth, player, setting, tone, undo, reputation, scene_memory, steer
 from . import prompt_security as sec
 
 
@@ -26,7 +26,7 @@ class _Ctx:
     _finalize. Lets the streaming and non-streaming paths share identical setup + commit logic
     (only HOW the first-pass text is produced differs), so the guard/referee/diode live in one place."""
     __slots__ = ("cfg", "tpath", "world", "spath", "player_input", "messages", "system",
-                 "tscale", "canon_raw", "beat", "th_list", "thpath", "tension", "scene_place")
+                 "tscale", "canon_raw", "beat", "th_list", "thpath", "tension", "scene_place", "steer")
 
     def __init__(self, **kw):
         for k in self.__slots__:
@@ -87,10 +87,11 @@ def _prepare(player_input: str, cfg: dict, tpath: Path, world: Path, spath: Path
             messages.append({"role": "user", "content": sec.neutralize(e["text"])})
     messages.append({"role": "user", "content": sec.neutralize(player_input)})
 
-    tscale = tone.scale(world, tension, nodes) if cfg.get("tone_steer") else None   # dynamic register
+    steer_w = steer.step(world, st, tension, nodes) if cfg.get("tone_steer") else {}   # smoothed register weights
+    tscale = steer.compose(steer_w) if steer_w else None                               # → the served-vector scale
     return _Ctx(cfg=cfg, tpath=tpath, world=world, spath=spath, player_input=player_input,
                 messages=messages, system=system, tscale=tscale, canon_raw=canon_raw,
-                beat=beat, th_list=th_list, thpath=thpath, tension=tension, scene_place=scene_place)
+                beat=beat, th_list=th_list, thpath=thpath, tension=tension, scene_place=scene_place, steer=steer_w)
 
 
 def _finalize(narration: str, ctx: "_Ctx") -> str:
@@ -129,6 +130,8 @@ def _finalize(narration: str, ctx: "_Ctx") -> str:
     st2.pop("_nearby", None)                         # a nearby event is woven in once, then clears
     if ctx.scene_place:
         st2["_location"] = ctx.scene_place              # remember where the player is (for the world round)
+    if ctx.steer:
+        st2["_steer"] = ctx.steer                       # persist the smoothed register weights (rides undo/sleep)
     state.save(ctx.spath, st2)
     if cfg.get("scene_memory"):                         # refresh the working memory on cadence (fail-soft)
         _maybe_update_memory(cfg, ctx.tpath, ctx.spath)
@@ -194,7 +197,7 @@ def resume(cfg: dict, tpath: Path, world: Path, spath: Path) -> str:
                      "it left off — do not repeat or restart, simply carry the moment forward and finish "
                      "the beat. The player has not acted yet; stay in the scene.)"})
 
-    tscale = tone.scale(world, tension, nodes) if cfg.get("tone_steer") else None
+    tscale = steer.compose(steer.read(st)) if cfg.get("tone_steer") else None   # current register (don't advance)
     more = llm.chat(messages, cfg, control_vector_scale=tscale)
     if not more.strip() or sec.looks_compromised(more):
         return ""

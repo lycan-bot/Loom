@@ -66,6 +66,7 @@ def make_handler(cfg: dict):
                     "state": {k: v for k, v in st_all.items() if not k.startswith("_")},
                     "location": st_all.get("_location", ""),
                     "memory": st_all.get("_memory", "") if cfg.get("scene_memory") else "",
+                    "steer": st_all.get("_steer", {}) if cfg.get("tone_steer") else {},
                     "reputation": [{"who": w, "standing": int(e.get("standing", 0) or 0),
                                     "label": reputation.label(int(e.get("standing", 0) or 0)),
                                     "log": [s for s in (e.get("log") or []) if isinstance(s, str)]}
