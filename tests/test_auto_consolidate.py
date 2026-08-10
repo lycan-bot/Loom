@@ -4,7 +4,7 @@ Offline."""
 import tempfile
 import unittest
 from pathlib import Path
-from loom import consolidate, narrate, canon, state, transcript, llm, config
+from loom import consolidate, narrate, canon, state, transcript, llm, config, inbox, reputation
 
 
 def _camp():
@@ -102,7 +102,9 @@ class AutoTest(unittest.TestCase):
             llm.complete = orig
         self.assertIsNotNone(canon.read_node(camp / "world", "A New Place"))   # written when opted in
 
-    def test_narrate_auto_consolidates_on_cadence(self):
+    def test_narrate_auto_consolidates_via_inbox(self):
+        # the daemon only PROPOSES (parks in the inbox); the NEXT turn's _prepare drain applies it —
+        # single-writer discipline, so the fold never races the turn's own state commit.
         camp = _camp()
         canon.write_node(camp / "world", "Room", "a room")
         state.save(camp / "state.json", {})
@@ -115,13 +117,132 @@ class AutoTest(unittest.TestCase):
         try:
             narrate.turn("t1", cfg, camp / "t.jsonl", camp / "world", camp / "state.json")   # _cturn → 1
             self.assertEqual(len(calls), 0)
-            narrate.turn("t2", cfg, camp / "t.jsonl", camp / "world", camp / "state.json")   # → 2 → auto fires
-            if narrate._auto_thread:                                   # auto now runs on a BACKGROUND thread
-                narrate._auto_thread.join(timeout=10)                 # …join it before asserting (and before we
-            self.assertEqual(len(calls), 1)                            #    restore the real llm in `finally`)
-            self.assertEqual(state.load(camp / "state.json").get("x"), "y")   # auto-applied a structured fact
+            narrate.turn("t2", cfg, camp / "t.jsonl", camp / "world", camp / "state.json")   # → 2 → daemon proposes
+            if narrate._auto_thread:
+                narrate._auto_thread.join(timeout=10)
+            self.assertEqual(len(calls), 1)                                     # model called once (proposal)
+            self.assertIsNone(state.load(camp / "state.json").get("x"))         # PARKED, not yet applied to state
+            narrate.turn("t3", cfg, camp / "t.jsonl", camp / "world", camp / "state.json")   # _prepare drains → applies
+            self.assertEqual(state.load(camp / "state.json").get("x"), "y")     # now folded in, on the turn thread
         finally:
             llm.chat, llm.complete = oc, ocmp
+
+
+class DeedKeyTest(unittest.TestCase):
+    def test_deed_key_prevents_reputation_double_apply(self):
+        # additive apply_delta must run at most once per (who, window); a re-fold of the SAME window
+        # (undo/crash/manual re-run) is idempotent.
+        camp = _camp()
+        prop = {"nodes": [], "state": {}, "threads_new": [], "threads_resolved": [],
+                "character_updates": [], "reputation": [{"who": "The Order", "delta": 2, "because": "a deed"}]}
+        consolidate.apply(prop, camp / "world", camp / "state.json", lambda *a: True, deed_window=(0, 8), watermark=8)
+        rep = reputation.load(state.load(camp / "state.json"))
+        self.assertEqual(rep["The Order"]["standing"], 2)
+        consolidate.apply(prop, camp / "world", camp / "state.json", lambda *a: True, deed_window=(0, 8), watermark=8)
+        rep = reputation.load(state.load(camp / "state.json"))
+        self.assertEqual(rep["The Order"]["standing"], 2)                       # NOT 4 — the re-fold no-op'd
+        self.assertEqual(len(rep["The Order"]["log"]), 1)                       # and the deed logged once
+
+    def test_no_deed_window_keeps_legacy_additive_behaviour(self):
+        camp = _camp()
+        prop = {"nodes": [], "state": {}, "threads_new": [], "threads_resolved": [],
+                "character_updates": [], "reputation": [{"who": "X", "delta": 1, "because": "d"}]}
+        consolidate.apply(prop, camp / "world", camp / "state.json", lambda *a: True)   # no deed_window
+        consolidate.apply(prop, camp / "world", camp / "state.json", lambda *a: True)
+        rep = reputation.load(state.load(camp / "state.json"))
+        self.assertEqual(rep["X"]["standing"], 2)                               # legacy path still additive
+
+    def test_combined_watermark_saves_with_rep(self):
+        camp = _camp()
+        prop = {"nodes": [], "state": {"m": "v"}, "threads_new": [], "threads_resolved": [],
+                "character_updates": [], "reputation": []}
+        consolidate.apply(prop, camp / "world", camp / "state.json", lambda *a: True, deed_window=(0, 4), watermark=4)
+        st = state.load(camp / "state.json")
+        self.assertEqual(st.get("m"), "v")
+        self.assertEqual(st.get("_consolidated"), 4)                           # advanced in the SAME save
+
+
+class DrainTest(unittest.TestCase):
+    def _job(self, start, end, state_kv):
+        return {"start": start, "end": end, "apply_canon": False, "proposals": {
+            "nodes": [], "state": state_kv, "threads_new": [], "threads_resolved": [],
+            "character_updates": [], "reputation": []}}
+
+    def test_drain_applies_contiguous_and_advances_watermark(self):
+        camp = _camp()
+        for _ in range(4):
+            transcript.append(camp / "t.jsonl", "player", "p")
+        inbox.append(camp / "state.json", self._job(0, 4, {"a": "1"}))
+        consolidate.drain_inbox({}, camp / "t.jsonl", camp / "world", camp / "state.json")
+        st = state.load(camp / "state.json")
+        self.assertEqual(st.get("a"), "1")
+        self.assertEqual(st.get("_consolidated"), 4)
+        self.assertEqual(inbox.take(camp / "state.json"), [])                   # inbox emptied
+
+    def test_drain_discards_orphan_beyond_transcript(self):
+        # an undo took the turns back → the job's window exceeds the transcript → discard, don't apply
+        camp = _camp()
+        transcript.append(camp / "t.jsonl", "player", "p")                     # only 1 entry
+        inbox.append(camp / "state.json", self._job(0, 8, {"a": "1"}))         # job wants [0,8)
+        consolidate.drain_inbox({}, camp / "t.jsonl", camp / "world", camp / "state.json")
+        self.assertIsNone(state.load(camp / "state.json").get("a"))            # NOT applied
+        self.assertEqual(inbox.take(camp / "state.json"), [])                   # and dropped, not re-queued
+
+    def test_drain_requeues_non_contiguous_job(self):
+        # a later window arrives before its predecessor folded → keep it for a later drain, don't drop
+        camp = _camp()
+        for _ in range(16):
+            transcript.append(camp / "t.jsonl", "player", "p")
+        inbox.append(camp / "state.json", self._job(8, 16, {"b": "2"}))        # starts past the watermark (0)
+        consolidate.drain_inbox({}, camp / "t.jsonl", camp / "world", camp / "state.json")
+        self.assertIsNone(state.load(camp / "state.json").get("b"))            # not applied yet
+        requeued = inbox.take(camp / "state.json")
+        self.assertEqual([(j["start"], j["end"]) for j in requeued], [(8, 16)])  # re-queued intact
+
+    def test_drain_orders_out_of_order_completion(self):
+        # daemon for [8,16) finished before [0,8) — drain must sort and apply both contiguously
+        camp = _camp()
+        for _ in range(16):
+            transcript.append(camp / "t.jsonl", "player", "p")
+        inbox.append(camp / "state.json", self._job(8, 16, {"b": "2"}))        # appended first (out of order)
+        inbox.append(camp / "state.json", self._job(0, 8, {"a": "1"}))
+        consolidate.drain_inbox({}, camp / "t.jsonl", camp / "world", camp / "state.json")
+        st = state.load(camp / "state.json")
+        self.assertEqual((st.get("a"), st.get("b")), ("1", "2"))              # both applied, in order
+        self.assertEqual(st.get("_consolidated"), 16)
+
+    def test_drain_drops_regrown_window_by_fingerprint(self):
+        # the length-only orphan guard can't tell an undone-THEN-REGROWN window (same length, different
+        # play) from the original; the content fingerprint must drop the stale fold so it never applies
+        # over different turns and the watermark never skips the real new play.
+        camp = _camp()
+        transcript.append(camp / "t.jsonl", "player", "original-A")
+        transcript.append(camp / "t.jsonl", "narrator", "original-B")
+        old_fp = consolidate.window_fingerprint(transcript.read_all(camp / "t.jsonl")[0:2])
+        # the player undid + replayed: SAME length, DIFFERENT content
+        transcript.rewrite(camp / "t.jsonl", [{"role": "player", "text": "replayed-X"},
+                                              {"role": "narrator", "text": "replayed-Y"}])
+        job = {"start": 0, "end": 2, "apply_canon": False, "fp": old_fp,
+               "proposals": {"nodes": [], "state": {"stale": "1"}, "threads_new": [],
+                             "threads_resolved": [], "character_updates": [], "reputation": []}}
+        inbox.append(camp / "state.json", job)
+        consolidate.drain_inbox({}, camp / "t.jsonl", camp / "world", camp / "state.json")
+        self.assertIsNone(state.load(camp / "state.json").get("stale"))       # stale fold dropped
+        self.assertIn(state.load(camp / "state.json").get("_consolidated"), (None, 0))  # watermark did NOT skip real turns
+        self.assertEqual(inbox.take(camp / "state.json"), [])                 # and not re-queued
+
+
+class WebLockTest(unittest.TestCase):
+    def test_write_lock_covers_mutating_posts(self):
+        # the single-writer invariant is enforced server-side: mutating POSTs take the write lock,
+        # pure propose/preview POSTs are exempt (so a slow model call doesn't stall a turn)
+        from loom import web
+        self.assertTrue(hasattr(web, "_WRITE_LOCK"))
+        for p in ("/api/turn", "/api/turn/stream", "/api/consolidate/apply", "/api/pending/apply",
+                  "/api/sleep", "/api/undo", "/api/retry", "/api/config"):
+            self.assertNotIn(p, web._READONLY_POSTS, f"{p} must be write-locked")
+        for p in ("/api/consolidate", "/api/imagine", "/api/assist", "/api/generate"):
+            self.assertIn(p, web._READONLY_POSTS, f"{p} is pure-propose, should be lock-exempt")
 
 
 if __name__ == "__main__":

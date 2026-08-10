@@ -7,10 +7,11 @@ write→re-read collapse the Sigilus floor exists to prevent, in miniature).
 """
 from __future__ import annotations
 import difflib
+import hashlib
 import json
 import re
 from pathlib import Path
-from . import llm, canon, state, threads, reputation, transcript
+from . import llm, canon, state, threads, reputation, transcript, inbox
 
 _JSON_RE = re.compile(r"\{[\s\S]*\}")
 
@@ -51,6 +52,31 @@ def _resolve_existing(world, name: str):
         if difflib.SequenceMatcher(None, n, e).ratio() >= 0.9:
             fuzzy = ex                                        # very close spelling (typo/variant)
     return fuzzy
+
+
+_REP_APPLIED_CAP = 100                          # remember the last N folded deed-ids (re-folds only touch recent windows)
+
+
+def _deed_id(who, window) -> str:
+    """A stable idempotency key for a reputation deed: the entity + the transcript window it was read
+    from. Keyed on IMMUTABLE inputs only (no timestamp, no re-worded `because`) so re-proposing the
+    SAME window (after an undo/crash/manual re-run) mints the SAME id and the additive apply_delta is
+    no-op'd — the double-apply the panel red-team proved every coordination-only fix left reachable."""
+    start, end = window
+    raw = f"{_norm(who)}|{int(start)}|{int(end)}"
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
+
+
+def window_fingerprint(lines) -> str:
+    """A content hash of a transcript window — (role, text) of each entry. Lets a parked fold job be
+    matched to the EXACT turns it was proposed from: a length check alone can't tell an undone-then-
+    REGROWN window (same length, different play) from the original, so without this a stale fold would
+    apply over different transcript entries and the watermark would skip the real new turns."""
+    h = hashlib.sha1()
+    for e in lines or []:
+        if isinstance(e, dict):
+            h.update((str(e.get("role", "")) + "\x1f" + str(e.get("text", "")) + "\x1e").encode("utf-8"))
+    return h.hexdigest()[:16]
 
 
 def _dicts(x):
@@ -249,7 +275,8 @@ def propose(cfg: dict, session_lines: list[dict], existing_threads=None, world=N
     return data
 
 
-def apply(proposals: dict, world: Path, state_path: Path, approve) -> dict:
+def apply(proposals: dict, world: Path, state_path: Path, approve,
+          deed_window=None, watermark=None) -> dict:
     """Write approved proposals to canon + state. `approve(kind, name, payload) -> bool` is
     called for EVERY change; nothing is written unless it returns True — the diode, the operator's
     hand between improv and canon.
@@ -257,6 +284,12 @@ def apply(proposals: dict, world: Path, state_path: Path, approve) -> dict:
     Model output is grammar-valid JSON but NOT shape-checked, so it is normalized to clean typed
     structures first (`_normalize`): a mistyped field is dropped, never crashed on mid-write, so a
     garbled reply can't leave half-written canon (propose→bless atomicity).
+
+    `deed_window=(start, end)` keys each reputation deed by the transcript window it came from, so a
+    re-fold of the same window can't double-apply the additive standing (idempotency; see `_deed_id`).
+    `watermark` (an int), when given, advances `_consolidated` in the SAME state save as `_rep` —
+    collapsing the old split-commit (apply saves `_rep`, mark_consolidated separately saves the
+    watermark) whose crash window re-armed the double-apply. None on both = legacy behaviour.
     """
     p = _normalize(proposals)
     written: dict[str, list] = {"nodes": [], "state": [], "threads": [], "resolved": [],
@@ -292,15 +325,31 @@ def apply(proposals: dict, world: Path, state_path: Path, approve) -> dict:
             written["state"].append(key)
             changed = True
     # reputation: shift each blessed standing (the diode gates each deed) and log the deed that moved
-    # it — stored in the same state under _rep so it commits atomically with the rest of the state
+    # it — stored in the same state under _rep so it commits atomically with the rest of the state.
+    # A deed already folded (its window-keyed id is in _rep_applied) is skipped: additive apply_delta
+    # must never run twice for the same window, or a re-fold double-counts the standing.
     rep = reputation.load(st)
+    prev_applied = [d for d in (st.get("_rep_applied") or []) if isinstance(d, str)]
+    seen = set(prev_applied)
+    new_ids = []
     for r in p["reputation"]:
+        did = _deed_id(r["who"], deed_window) if deed_window is not None else None
+        if did is not None and did in seen:
+            continue                                  # this window's deed for `who` was already folded
         if approve("reputation", r["who"], r):
             reputation.apply_delta(rep, r["who"], r["delta"], r["because"])
             written["reputation"].append(r["who"])
             changed = True
+            if did is not None:
+                new_ids.append(did)
     if rep:
         st["_rep"] = rep
+    if new_ids:                                       # remember what we folded (bounded — recent windows only)
+        st["_rep_applied"] = (prev_applied + new_ids)[-_REP_APPLIED_CAP:]
+        changed = True
+    if watermark is not None:                         # advance the watermark in the SAME save as _rep (no split)
+        st["_consolidated"] = int(watermark)
+        changed = True
     if changed:
         state.save(state_path, st)
 
@@ -413,14 +462,34 @@ def apply_pending(world: Path, spath, approve=None) -> dict:
     return written
 
 
+def _fold_proposals(proposals, world, spath, start, end, apply_canon):
+    """Fold ONE window's proposals into the durable stores — the shared body of both the synchronous
+    `auto()` and the background-then-drain path. The DIODE: by default only low-risk structured
+    continuity (facts, reputation, disposition/location, thread ripening) applies; canon nodes + thread
+    RESOLUTION stay gated and PARK in the pen unless apply_canon. The watermark is advanced to `end` in
+    the same save as `_rep`, and reputation is keyed on (start, end) so a re-fold can't double-count.
+    Returns (written, pending_node_names). ALWAYS runs on the turn thread — never a background one."""
+    def approve(kind, name, payload):
+        if kind in ("node", "resolve") and not apply_canon:
+            return False
+        return True
+
+    pending_names = []
+    if not apply_canon:
+        norm_nodes = _normalize(proposals)["nodes"]
+        if norm_nodes:
+            queue_pending(spath, norm_nodes)          # PARK canon for bless FIRST — a crash before the
+            pending_names = [n["name"] for n in norm_nodes]   # watermark advance just re-parks (dedup by name)
+    written = apply(proposals, world, spath, approve, deed_window=(start, end), watermark=end)
+    return written, pending_names
+
+
 def auto(cfg, tpath, world, spath, apply_canon: bool = False):
-    """Automated consolidation: propose from the NEW turns and fold in the result. Returns a report.
-    The DIODE: by default only the low-risk structured continuity (state facts, reputation, character
-    disposition/location, thread ripening) is auto-applied; new/edited CANON NODES and thread
-    RESOLUTION stay gated unless `apply_canon` is set — auto-authoring the world-bible unattended is
-    the write→re-read collapse this wall exists to prevent. Gated canon is PARKED in `_pending_canon`
-    (queue_pending), never dropped, so a later bless can still land it even though the watermark moved."""
+    """Synchronous consolidation: propose from the NEW turns and fold the result in one call. Kept for
+    the manual/test path; the LIVE auto path is background-propose + drain_inbox (single-writer). Now
+    routes through `_fold_proposals`, so it gets the idempotent reputation + combined watermark save."""
     new_lines, total = unconsolidated(tpath, spath)
+    wm = total - len(new_lines)
     if len([e for e in new_lines if e.get("role") == "player"]) < 1:
         return {"applied": {}, "pending_nodes": [], "summary": "", "new": len(new_lines)}
     existing = threads.load(spath.parent / "threads.json")
@@ -428,20 +497,50 @@ def auto(cfg, tpath, world, spath, apply_canon: bool = False):
         proposals = propose(cfg, new_lines, existing, world=world)
     except Exception as e:
         return {"error": str(e), "new": len(new_lines)}
-
-    # gate: canon nodes + thread-resolution only apply when apply_canon is explicitly chosen
-    def approve(kind, name, payload):
-        if kind in ("node", "resolve") and not apply_canon:
-            return False
-        return True
-
-    written = apply(proposals, world, spath, approve)
-    mark_consolidated(spath, total)
-    pending_names = []
-    if not apply_canon:
-        norm_nodes = _normalize(proposals)["nodes"]
-        if norm_nodes:
-            queue_pending(spath, norm_nodes)          # PARK canon for bless — never drop it past the watermark
-            pending_names = [n["name"] for n in norm_nodes]
+    written, pending_names = _fold_proposals(proposals, world, spath, wm, total, apply_canon)
     return {"applied": written, "pending_nodes": pending_names,
             "summary": proposals.get("summary", ""), "new": len(new_lines)}
+
+
+def drain_inbox(cfg, tpath, world, spath) -> dict:
+    """Apply every fold job the background archivist parked in the inbox — on the TURN thread, so it is
+    the single writer of state/canon/threads and the fold-vs-turn race cannot occur. Called at the top
+    of each turn (before undo.snapshot, so a fold survives an undo of the turn it drained on).
+
+    Guards, per job (each carries the transcript window [start, end) it proposed from):
+      • malformed / already-folded (end ≤ current watermark) → drop
+      • ORPHANED — the transcript shrank below `end` (an undo took those turns back) → drop
+      • start < watermark (overlaps folded turns) → drop; the un-folded tail is re-proposed next cadence
+      • start > watermark (an earlier window's job is still pending) → RE-QUEUE for a later drain
+      • start == watermark (contiguous) → apply, advancing the watermark to `end`
+    Jobs are sorted by start so out-of-order daemon completion still applies contiguously."""
+    jobs = inbox.take(spath)
+    if not jobs:
+        return {"applied": 0}
+    jobs.sort(key=lambda j: int(j.get("start", 0) or 0))
+    applied = 0
+    for job in jobs:
+        try:
+            start = int(job.get("start", 0) or 0)
+            end = int(job.get("end", 0) or 0)
+            if end <= start:
+                continue                              # malformed → drop
+            wm_now = int(state.load(spath).get("_consolidated", 0) or 0)
+            if end <= wm_now:
+                continue                              # already folded → drop
+            tlines = transcript.read_all(tpath)
+            if len(tlines) < end:
+                continue                              # orphaned by an undo (turns gone) → drop
+            fp = job.get("fp")
+            if fp is not None and window_fingerprint(tlines[start:end]) != fp:
+                continue                              # window REGROWN with different content (undo→replay) → stale, drop
+            if start < wm_now:
+                continue                              # overlaps folded turns → drop; tail re-proposed later
+            if start > wm_now:
+                inbox.append(spath, job)              # predecessor window still pending → re-queue
+                continue
+            _fold_proposals(job.get("proposals") or {}, world, spath, start, end, bool(job.get("apply_canon")))
+            applied += 1
+        except Exception:
+            continue
+    return {"applied": applied}

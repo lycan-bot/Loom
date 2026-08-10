@@ -569,7 +569,10 @@ $("f").addEventListener("submit",async ev=>{
   ev.preventDefault();
   const t=$("input").value.trim();if(!t)return;
   $("input").value="";addTurn("player",t);
-  $("send").disabled=true;$("mdot").className="dot";
+  // lock the turn-mutating controls for the duration — the server serializes them anyway (one write
+  // lock), but disabling avoids a mid-turn click appearing to hang while it waits on that lock.
+  $("send").disabled=true;$("undo").disabled=true;$("continue").disabled=true;$("retry").disabled=true;
+  $("mdot").className="dot";
   addTurn("sys","…the world stirs…");
   const think=$("log").lastChild;
   try{
@@ -581,7 +584,10 @@ $("f").addEventListener("submit",async ev=>{
       else{addTurn("sys","⚠ "+(j.error||"the narrator is silent")+"  (is ./serve.sh running?)");$("mdot").className="dot bad";}
     }
   }catch(e){think.remove();addTurn("sys","⚠ "+e);$("mdot").className="dot bad";}
-  $("send").disabled=false;$("input").focus();
+  // restore controls: on success the done-handler already enabled them; on error re-enable so the
+  // orphaned player line can be recovered with ↻ Retry (undo reflects can_undo on the next refresh).
+  $("send").disabled=false;$("undo").disabled=false;$("continue").disabled=false;$("retry").disabled=false;
+  $("input").focus();
 });
 
 $("undo").addEventListener("click",async()=>{

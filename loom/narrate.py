@@ -7,7 +7,7 @@ transcript only carries the last few beats of conversational flow.
 from __future__ import annotations
 import threading
 from pathlib import Path
-from . import llm, retrieve, transcript, state, pacing, threads, director, character, mechanics, referee, depth, player, setting, tone, undo, reputation, scene_memory, steer, consolidate
+from . import llm, retrieve, transcript, state, pacing, threads, director, character, mechanics, referee, depth, player, setting, tone, undo, reputation, scene_memory, steer, consolidate, inbox
 from . import prompt_security as sec
 
 
@@ -36,6 +36,13 @@ class _Ctx:
 
 def _prepare(player_input: str, cfg: dict, tpath: Path, world: Path, spath: Path) -> "_Ctx":
     """Snapshot for undo, record the player line, and build the prompt + the commit context."""
+    # drain any background fold BEFORE snapshotting — on the turn thread, the single writer of the
+    # durable stores (this is what dissolves the fold-vs-turn race). Draining pre-snapshot means a
+    # fold survives an undo of the turn it landed on (the fold isn't part of the player's action).
+    try:
+        consolidate.drain_inbox(cfg, tpath, world, spath)
+    except Exception:
+        pass
     undo.snapshot(tpath, spath)                       # capture pre-turn state so the turn can be taken back
     transcript.append(tpath, "player", player_input)
 
@@ -141,16 +148,19 @@ def _finalize(narration: str, ctx: "_Ctx") -> str:
     return narration
 
 
-# the last background consolidation, so tests (and a clean shutdown) can join it. A daemon thread's
-# writes are atomic (state.save is mkstemp+os.replace), so being killed mid-fold can't tear a file.
+# the last background consolidation, so tests (and a clean shutdown) can join it. The daemon does ONLY
+# the slow model call + an append to the inbox — it never writes state/canon/threads, so it can be
+# killed mid-run without tearing anything, and its result is applied later by drain_inbox (the single
+# turn-thread writer). See loom/inbox.py + consolidate.drain_inbox.
 _auto_thread: "threading.Thread | None" = None
 
 
 def _maybe_auto_consolidate(cfg, tpath, world, spath):
-    """Every `consolidate_every` turns, kick off an INCREMENTAL consolidate (only the new turns) on a
-    BACKGROUND thread, so folding never pauses play — the turn returns instantly while the archivist
-    reads behind it. Diode-gated: canon nodes are PARKED in the pending queue unless
-    auto_consolidate_apply is set. Never raises (a failed fold is silent; the cadence retries next time)."""
+    """Every `consolidate_every` turns, kick off an INCREMENTAL consolidate on a BACKGROUND thread that
+    ONLY proposes (the slow model call) and appends the result to the inbox — it writes none of the
+    durable stores. The turn thread drains + applies it at the next turn's start (drain_inbox), so play
+    never pauses AND there is never a second concurrent writer to race. Diode-gated: canon nodes are
+    PARKED unless auto_consolidate_apply. Never raises (a failed propose is silent; the cadence retries)."""
     global _auto_thread
     every = max(2, int(cfg.get("consolidate_every", 8) or 8))
     st = state.load(spath)
@@ -160,12 +170,28 @@ def _maybe_auto_consolidate(cfg, tpath, world, spath):
         state.save(spath, st)
         return
     st["_cturn"] = 0
-    state.save(spath, st)                               # reset first, so a failure doesn't retry every turn
+    state.save(spath, st)                               # reset the cadence first (a failure won't retry every turn)
+    # the window starts at the WATERMARK, not a spawn-time reservation: if propose() fails (model
+    # timeout) the daemon appends nothing, the watermark doesn't move, and the NEXT cadence simply
+    # re-proposes the superset window — a failed fold retries instead of silently skipping the window.
+    # If two folds are ever in flight they propose overlapping windows; drain_inbox discards the
+    # overlap and the tail re-proposes (rare, self-healing) — correctness rests on the drain guards.
+    wm = int(st.get("_consolidated", 0) or 0)
+    total = len(transcript.read_all(tpath))
+    if total <= wm:
+        return
+    existing = threads.load(spath.parent / "threads.json")   # read HERE (turn thread); the daemon stays isolated
+    apply_canon = bool(cfg.get("auto_consolidate_apply"))
 
     def _run():
         try:
-            consolidate.auto(cfg, tpath, world, spath,
-                             apply_canon=bool(cfg.get("auto_consolidate_apply")))
+            lines = transcript.read_all(tpath)[wm:total]
+            if len([e for e in lines if e.get("role") == "player"]) < 1:
+                return
+            proposals = consolidate.propose(cfg, lines, existing, world=world)
+            inbox.append(spath, {"start": wm, "end": total, "apply_canon": apply_canon,
+                                 "fp": consolidate.window_fingerprint(lines),   # bind the job to the EXACT turns
+                                 "proposals": proposals})                       # it read (undo→replay ⇒ fp mismatch ⇒ drop)
         except Exception:
             pass
 

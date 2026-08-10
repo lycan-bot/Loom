@@ -7,12 +7,23 @@ reaches outside the campaign — same wall as everything else.
 """
 from __future__ import annotations
 import json
+import threading
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from . import config, canon, state, transcript, narrate, consolidate, llm, threads, imagine, guard, character, sleep, worldturn, player, generate, setting, undo, reputation, salience, assistant
 
 STATIC = Path(__file__).resolve().parent / "static"
+
+# ThreadingHTTPServer runs every request on its own thread. Any two POSTs that read-modify-write the
+# durable stores (state.json / threads.json / the transcript) would otherwise last-writer-wins-clobber
+# each other — reverting the watermark, or reverting the _rep_applied ledger and re-arming the
+# reputation double-apply. This process-wide lock serializes the MUTATING requests, restoring the
+# single-writer invariant the background-fold design already assumes on the daemon side. Pure
+# propose/preview POSTs (a model call, no durable write) are exempt so a long archivist call never
+# stalls play.
+_WRITE_LOCK = threading.Lock()
+_READONLY_POSTS = frozenset({"/api/assist", "/api/consolidate", "/api/imagine", "/api/generate"})
 
 
 def _graph(world: Path) -> dict:
@@ -134,6 +145,14 @@ def make_handler(cfg: dict):
             return self._send(404, {"error": "not found"})
 
         def do_POST(self):
+            # serialize state-mutating requests (single-writer invariant); exempt pure propose/preview
+            # POSTs so a slow archivist/imagine model call doesn't stall a turn.
+            if urllib.parse.urlparse(self.path).path in _READONLY_POSTS:
+                return self._do_POST()
+            with _WRITE_LOCK:
+                return self._do_POST()
+
+        def _do_POST(self):
             u = urllib.parse.urlparse(self.path)
             try:
                 clen = max(0, int(self.headers.get("Content-Length") or 0))   # not 'length' — that's a module
@@ -237,8 +256,9 @@ def make_handler(cfg: dict):
                 try:
                     existing = threads.load(spath.parent / "threads.json")
                     proposals = consolidate.propose(cfg, lines, existing, world=world)
-                    proposals["_total"] = total                          # so apply can advance the watermark
-                    return self._send(200, proposals)
+                    proposals["_start"] = total - len(lines)             # the window bounds — round-tripped so
+                    proposals["_total"] = total                          # apply gets the SAME deed-key + watermark
+                    return self._send(200, proposals)                    # save the drain path uses (no split-commit)
                 except Exception as e:
                     return self._send(502, {"error": str(e)})
             if u.path == "/api/consolidate/apply":
@@ -252,12 +272,16 @@ def make_handler(cfg: dict):
                       "disposition": set(body.get("approved_dispositions") or []),
                       "location": set(body.get("approved_locations") or []),
                       "reputation": set(body.get("approved_reputation") or [])}
+                total = int(proposals.get("_total") or len(transcript.read_all(tpath)))
+                start = int(proposals.get("_start") or 0)
                 try:
+                    # SAME idempotent-reputation + combined-watermark save as the auto/drain path: deed-key
+                    # on (start, total) so a re-run can't double-count, and the watermark advances in the
+                    # same state.save as _rep (no split-commit). Replaces the old separate mark_consolidated.
                     written = consolidate.apply(
                         proposals, world, spath,
-                        approve=lambda kind, name, _p: name in ok.get(kind, set()))
-                    consolidate.mark_consolidated(                        # advance the watermark past these turns
-                        spath, proposals.get("_total") or len(transcript.read_all(tpath)))
+                        approve=lambda kind, name, _p: name in ok.get(kind, set()),
+                        deed_window=(start, total), watermark=total)
                 except Exception as e:
                     return self._send(502, {"error": str(e)})
                 return self._send(200, {"written": written})

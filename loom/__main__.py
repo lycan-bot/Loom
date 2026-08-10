@@ -96,8 +96,8 @@ def cmd_consolidate(cfg, auto):
             return True
         return input(f"  keep {kind} '{desc}'? [y/N] ").strip().lower() in ("y", "yes")
 
-    written = consolidate.apply(proposals, world, spath, approve)
-    consolidate.mark_consolidated(spath, total)               # advance the watermark past these turns
+    written = consolidate.apply(proposals, world, spath, approve,   # deed-key + combined watermark save,
+                                deed_window=(total - len(lines), total), watermark=total)   # matching the drain path
     print(f"\nwrote {len(written['nodes'])} node(s), {len(written['state'])} state, "
           f"{len(written['threads'])} thread(s), {len(written['resolved'])} resolved, "
           f"{len(written['dispositions'])} disposition(s), {len(written['locations'])} move(s), "
