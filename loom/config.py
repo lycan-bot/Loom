@@ -18,7 +18,7 @@ DEFAULTS = {
     "max_tokens":      1400,   # a CEILING, not a target — sized so a normal 550-700 word turn finishes
                                # on its own; the ⤵ Continue button extends a rare short-ending beat on demand
     "temperature":     0.85,
-    "request_timeout": 180,
+    "request_timeout": 300,
 
     # optional 2nd model — a separate obedient "archivist" for consolidation (which
     # wants clean JSON, unlike a wild uncensored narrator). Blank → reuse the narrator.
