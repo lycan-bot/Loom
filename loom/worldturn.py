@@ -16,7 +16,7 @@ to be MUTABLE — an NPC's own turn can carry them elsewhere, so groups form and
 from __future__ import annotations
 import json
 import re
-from . import canon, npc, llm, state, player
+from . import canon, npc, llm, state, player, retrieve, consolidate
 
 _JSON_RE = re.compile(r"\{[\s\S]*\}")
 _MAX_TURNS = 4          # groups that act per round — the world moves without flooding the prompt
@@ -27,6 +27,10 @@ sentences) of what they do this round: a small, in-character, concrete step towa
 grounded strictly in the canon. A group of one acts alone; a group of several INTERACT — cooperating
 if their aims align, at odds if they collide. The world does NOT rearrange itself around the absent
 player, and nothing hands the player an advantage.
+
+Each actor's parenthetical is what they WANT — a goal they are still pursuing, NOT something that has
+already happened. Write a concrete step TOWARD it; never narrate the goal as already achieved, and
+never reference a past event, conversation, or testimony that is not in the canon below.
 
 THIS ROUND (each line is one group taking its turn):
 %s
@@ -96,7 +100,15 @@ def run(cfg, world) -> dict:
         return {"turns": [], "pending": False}
     lines = [f"- At {g[0][2] or 'parts unknown'}: "
              + "; ".join(f"{node['name']} ({m.because})" for node, m, _loc in g) for g in gs]
-    canon_text = "\n".join(f"{n['name']}: {n['body'][:150]}" for n in canon.load_all(world))[:1500]
+    # ground the round in canon RELEVANT to this round's actors (their names, wants, places) — not an
+    # arbitrary alphabetical slice of everything (the source of the 'invented testimony' confabulation)
+    actor_names = [node["name"] for g in gs for node, m, _loc in g]
+    query = " ".join(actor_names + [m.because for g in gs for node, m, _loc in g]
+                     + [g[0][2] for g in gs if g[0][2]])
+    canon_text = retrieve.grounded_context(world, cfg, query, anchors=actor_names) or "(no canon yet)"
+    # constrain `where` to the round's actual locations, so the co-location routing below can match it
+    where_vals = sorted({g[0][2] for g in gs if g[0][2]})
+    where_prop = {"type": "string", "enum": where_vals + ["parts unknown"]} if where_vals else {"type": "string"}
     ccfg = dict(cfg)
     if cfg.get("consolidate_llm_url"):
         ccfg["llm_url"] = cfg["consolidate_llm_url"]
@@ -109,7 +121,7 @@ def run(cfg, world) -> dict:
                            temperature=0.5, response_format=llm.schema_format("world_round", {
                                "type": "object", "properties": {"turns": {"type": "array", "items": {
                                    "type": "object", "properties": {
-                                       "where": {"type": "string"},
+                                       "where": where_prop,
                                        "who": {"type": "array", "items": {"type": "string"}},
                                        "beat": {"type": "string"}}}}}}))
         m = _JSON_RE.search(raw)
@@ -150,8 +162,10 @@ def maybe_round(cfg, world, state_path) -> list:
     # co-located routing: a turn AT the player's current place folds into their SCENE (a 'nearby'
     # note narrate weaves into the next narration), rather than a detached 'meanwhile' pulse. The
     # rest — turns elsewhere in the world — stay the pulse.
-    loc = str(st.get("_location", "")).strip().lower()
-    here = [t for t in turns if loc and t.get("where", "").strip().lower() == loc]
+    # normalize BOTH sides through the place normalizer (strips 'the ', case, punctuation) so
+    # "The Library" and "library" co-locate — the raw string compare silently missed those
+    loc = consolidate._norm(st.get("_location", ""))
+    here = [t for t in turns if loc and consolidate._norm(t.get("where", "")) == loc]
     if here:
         note = " ".join(t["beat"] for t in here)
         prior = st.get("_nearby", "")

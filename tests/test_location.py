@@ -58,6 +58,24 @@ class RoutingTest(unittest.TestCase):
         self.assertIn("ledger into his coat", state.load(camp / "state.json").get("_nearby", ""))  # here → nearby
         self.assertEqual([t["where"] for t in pulse], ["The Docks"])                                # elsewhere → pulse
 
+    def test_colocation_matches_across_article_and_case(self):
+        # "the library" (player) vs "Library" (world round) must co-locate — the raw string compare
+        # missed the article/case difference; both sides now route through the place normalizer
+        camp = _camp()
+        canon.write_node(camp / "world", "The Library", "a hall of books", {"kind": "place"})
+        canon.write_node(camp / "world", "Wren", "a cadet",
+                         {"kind": "character", "wants": "a grimoire", "location": "The Library"})
+        state.save(camp / "state.json", {"_location": "the library", "_wturn": 0})
+        cfg = dict(config.DEFAULTS); cfg["world_rounds"] = True; cfg["depth"] = 1.0; cfg["world_cadence"] = 1
+        orig = llm.complete
+        llm.complete = lambda *a, **k: '{"turns":[{"where":"Library","who":["Wren"],"beat":"Wren pulls a grimoire from the shelf."}]}'
+        try:
+            pulse = worldturn.maybe_round(cfg, camp / "world", camp / "state.json")
+        finally:
+            llm.complete = orig
+        self.assertIn("grimoire from the shelf", state.load(camp / "state.json").get("_nearby", ""))  # co-located
+        self.assertEqual(pulse, [])                                                                   # nothing to the pulse
+
 
 if __name__ == "__main__":
     unittest.main()

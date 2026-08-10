@@ -92,3 +92,27 @@ def retrieve(query: str, world: Path, cfg: dict, k: int | None = None) -> list[d
             out.append({**d, "score": score if name in relevant else 0.0})
     # never leave a turn ungrounded: if lexical found nothing, fall back to all nodes
     return out or [{**d, "score": 0.0} for d in docs[:k]]
+
+
+def grounded_context(world: Path, cfg: dict, query: str, anchors=(), k: int | None = None,
+                     body_chars: int = 200) -> str:
+    """A canon context block GROUNDED in retrieval for `query`, not an arbitrary alphabetical slice.
+    The world-round / sleep confabulation ('Fáelán's testimony') came from the model free-associating
+    over a fixed 1500-char dump of ALL canon; this instead grounds the beat in what's actually
+    relevant to its actors. `anchors` (names) are always included first — the characters the round is
+    ABOUT — then the highest-scored genuine matches, capped at k. '' when the world has no canon."""
+    k = k or cfg.get("retrieve_k", 8)
+    by_name = {d["name"]: d for d in canon.load_all(world)}
+    if not by_name:
+        return ""
+    picked, seen = [], set()
+    for name in anchors:                                  # the actors are always in-context
+        d = by_name.get(name)
+        if d and name not in seen:
+            seen.add(name)
+            picked.append(d)
+    for d in retrieve(query, world, cfg, k=k):            # + genuine matches for what they want / where
+        if d["name"] not in seen and d.get("score", 0.0) > 0:
+            seen.add(d["name"])
+            picked.append(d)
+    return "\n".join(f"{d['name']}: {(d.get('body') or '')[:body_chars]}" for d in picked[:k])

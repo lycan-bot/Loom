@@ -11,7 +11,7 @@ time passes the deeper the realness).
 from __future__ import annotations
 import json
 import re
-from . import threads, canon, llm, state, npc
+from . import threads, canon, llm, state, npc, retrieve
 
 _JSON_RE = re.compile(r"\{[\s\S]*\}")
 
@@ -26,7 +26,10 @@ CANON (the world's established truth):
 Write a SHORT "meanwhile, while you were away" recap (2-4 sentences) of what happened — grounded
 strictly in the items above and the canon, consistent with the world, understated. Characters act
 IN CHARACTER, taking small concrete steps toward what they want; the world does NOT rearrange
-itself around the absent player, and nothing hands them an advantage. Respond with ONE json object:
+itself around the absent player, and nothing hands them an advantage. A character's want is a goal
+they are pursuing, NOT something that already happened — describe a step TOWARD it, and never invent
+a past event, conversation, or testimony that is not grounded in the items and canon above.
+Respond with ONE json object:
 {"recap": "the prose recap", "resolved": ["<id of a thread the events fully spent, if any>"]}
 """
 
@@ -65,7 +68,11 @@ def advance(cfg, world, threads_path):
     items = [f"- {t.question}" for t in due]
     items += [f"- {name}, who {m.because}, takes a small step toward it" for name, m in moves]
     items_text = "\n".join(items)
-    canon_text = "\n".join(f"{n['name']}: {n['body'][:150]}" for n in canon.load_all(world))[:1500]
+    # ground the recap in canon RELEVANT to who/what moved this sleep — not an alphabetical slice of
+    # everything (the same 1500-char dump that let the world round free-associate false history)
+    move_names = [name for name, _m in moves]
+    query = " ".join([t.question for t in due] + move_names + [m.because for _n, m in moves])
+    canon_text = retrieve.grounded_context(world, cfg, query, anchors=move_names) or "(no canon yet)"
     ccfg = dict(cfg)
     if cfg.get("consolidate_llm_url"):
         ccfg["llm_url"] = cfg["consolidate_llm_url"]

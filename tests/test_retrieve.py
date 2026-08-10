@@ -31,6 +31,31 @@ class RetrieveTest(unittest.TestCase):
         self.assertTrue(all(n["score"] == 0.0 for n in r))       # fallback grounding, not proximity
 
 
+class GroundedContextTest(unittest.TestCase):
+    def test_anchors_always_included_matches_added_irrelevant_excluded(self):
+        # the world-round/sleep grounding: actors are always in-context; genuine matches join;
+        # irrelevant canon (the alphabetical-dump confabulation source) is left out
+        w = _world()
+        canon.write_node(w, "Wren", "a battle-mage cadet studying wards")
+        canon.write_node(w, "Aldermere College", "the magic university where wards are taught")
+        canon.write_node(w, "Fishing Village", "a distant hamlet on the coast")
+        ctx = retrieve.grounded_context(w, dict(config.DEFAULTS), "Wren wards college", anchors=["Wren"])
+        self.assertIn("Wren:", ctx)                              # anchor always present
+        self.assertIn("Aldermere College:", ctx)                # relevant match pulled in
+        self.assertNotIn("Fishing Village", ctx)                # irrelevant canon NOT dumped in
+
+    def test_anchor_present_even_with_no_query_match(self):
+        w = _world()
+        canon.write_node(w, "Wren", "a cadet")
+        canon.write_node(w, "Other", "unrelated")
+        ctx = retrieve.grounded_context(w, dict(config.DEFAULTS), "zzzznomatch", anchors=["Wren"])
+        self.assertIn("Wren:", ctx)                             # actor grounded even when nothing matches
+        self.assertNotIn("Other", ctx)                         # and the fallback dump doesn't leak in
+
+    def test_empty_world_returns_empty(self):
+        self.assertEqual(retrieve.grounded_context(_world(), dict(config.DEFAULTS), "q", anchors=["X"]), "")
+
+
 class EmbeddingsTest(unittest.TestCase):
     def test_fusion_when_shapes_match(self):
         w = _world()
