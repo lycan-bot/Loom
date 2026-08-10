@@ -253,6 +253,13 @@ def make_handler(cfg: dict):
                 if not lines:
                     return self._send(200, {"nodes": [], "state": {}, "threads_new": [],
                                             "threads_resolved": [], "summary": "nothing new to consolidate"})
+                # CAP the window like the auto path — a big backlog folded in ONE prompt overflows the
+                # model's context and crashes the server (that's what took :8090 down). Fold a chunk;
+                # click again (or let auto-fold) for the rest.
+                window = max(1, int(cfg.get("consolidate_window", 16) or 16))
+                if len(lines) > window:
+                    wm = total - len(lines)
+                    lines, total = lines[:window], wm + window
                 try:
                     existing = threads.load(spath.parent / "threads.json")
                     proposals = consolidate.propose(cfg, lines, existing, world=world)
