@@ -67,11 +67,11 @@ def cmd_play(cfg):
 
 def cmd_consolidate(cfg, auto):
     tpath, world, spath = _paths(cfg)
-    lines = transcript.read_all(tpath)
+    lines, total = consolidate.unconsolidated(tpath, spath)   # only the NEW turns (incremental)
     if not lines:
-        print("nothing to consolidate.")
+        print("nothing new to consolidate.")
         return
-    print("reading the session log…")
+    print(f"reading {len(lines)} new transcript entries…")
     existing = threads.load(spath.parent / "threads.json")
     try:
         proposals = consolidate.propose(cfg, lines, existing, world=world)
@@ -97,6 +97,7 @@ def cmd_consolidate(cfg, auto):
         return input(f"  keep {kind} '{desc}'? [y/N] ").strip().lower() in ("y", "yes")
 
     written = consolidate.apply(proposals, world, spath, approve)
+    consolidate.mark_consolidated(spath, total)               # advance the watermark past these turns
     print(f"\nwrote {len(written['nodes'])} node(s), {len(written['state'])} state, "
           f"{len(written['threads'])} thread(s), {len(written['resolved'])} resolved, "
           f"{len(written['dispositions'])} disposition(s), {len(written['locations'])} move(s), "

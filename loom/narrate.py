@@ -6,7 +6,7 @@ transcript only carries the last few beats of conversational flow.
 """
 from __future__ import annotations
 from pathlib import Path
-from . import llm, retrieve, transcript, state, pacing, threads, director, character, mechanics, referee, depth, player, setting, tone, undo, reputation, scene_memory, steer
+from . import llm, retrieve, transcript, state, pacing, threads, director, character, mechanics, referee, depth, player, setting, tone, undo, reputation, scene_memory, steer, consolidate
 from . import prompt_security as sec
 
 
@@ -135,7 +135,27 @@ def _finalize(narration: str, ctx: "_Ctx") -> str:
     state.save(ctx.spath, st2)
     if cfg.get("scene_memory"):                         # refresh the working memory on cadence (fail-soft)
         _maybe_update_memory(cfg, ctx.tpath, ctx.spath)
+    if cfg.get("auto_consolidate"):                     # auto-fold new turns into memory on cadence (fail-soft)
+        _maybe_auto_consolidate(cfg, ctx.tpath, ctx.world, ctx.spath)
     return narration
+
+
+def _maybe_auto_consolidate(cfg, tpath, world, spath):
+    """Every `consolidate_every` turns, auto-run an INCREMENTAL consolidate (only the new turns).
+    Diode-gated: canon nodes stay queued unless auto_consolidate_apply is set. Never raises."""
+    every = max(2, int(cfg.get("consolidate_every", 8) or 8))
+    st = state.load(spath)
+    n = int(st.get("_cturn", 0) or 0) + 1
+    if n < every:
+        st["_cturn"] = n
+        state.save(spath, st)
+        return
+    st["_cturn"] = 0
+    state.save(spath, st)                               # reset first, so a failure doesn't retry every turn
+    try:
+        consolidate.auto(cfg, tpath, world, spath, apply_canon=bool(cfg.get("auto_consolidate_apply")))
+    except Exception:
+        pass
 
 
 def _maybe_update_memory(cfg, tpath, spath):

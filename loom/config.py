@@ -49,6 +49,9 @@ DEFAULTS = {
     "scene_memory":     True,   # keep an advisory 'story so far' in context so details don't scroll out (never canon)
     "memory_every":     4,      # refresh the working memory every N turns (the cadence dial)
     "memory_lines":     10,     # cap on the working-memory fact list
+    "auto_consolidate": False,  # auto-fold new turns into memory every N turns (incremental; diode-gated)
+    "auto_consolidate_apply": False,  # opt-in: let auto-consolidate write CANON NODES too (bypasses the bless)
+    "consolidate_every": 8,     # auto-consolidation cadence (turns) — incremental, so it stays fast
 
     # --- which campaign is live ---
     "campaign":        "example",

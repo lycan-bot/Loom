@@ -397,11 +397,14 @@ async function editSettings(){
     `<label style="display:block"><input type="checkbox" id="s_stream" ${c.stream?"checked":""}> stream narration — the story appears word by word as it's written</label>`+
     `<label style="display:block;margin-top:8px"><input type="checkbox" id="s_mem" ${c.scene_memory?"checked":""}> story memory — keep a running 'story so far' so early details aren't forgotten</label>`+
     `<label>memory refresh · every N turns</label><select id="s_memevery">`+[2,3,4,6,8,10].map(v=>`<option value="${v}"${(c.memory_every||4)==v?" selected":""}>${v}</option>`).join("")+`</select>`+
+    `<label style="display:block;margin-top:8px"><input type="checkbox" id="s_autocon" ${c.auto_consolidate?"checked":""}> auto-consolidate — fold new turns into memory automatically (incremental; canon nodes stay gated)</label>`+
+    `<label style="display:block;font-size:12px;opacity:.85"><input type="checkbox" id="s_autocanon" ${c.auto_consolidate_apply?"checked":""}> └ also auto-write canon nodes (bypasses the per-item bless — the diode)</label>`+
+    `<label>consolidate · every N turns</label><select id="s_conevery">`+[4,6,8,12,16].map(v=>`<option value="${v}"${(c.consolidate_every||8)==v?" selected":""}>${v}</option>`).join("")+`</select>`+
     `<div class="row"><button onclick="saveSettings()">Apply</button><button class="ghost" onclick="showContinuity()">Close</button></div></div>`;
 }
 async function saveSettings(){
   await fetch("/api/config",{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({depth:parseFloat($("s_depth").value),world_rounds:$("s_world").checked,mechanics:$("s_mech").checked,tone_steer:$("s_tone").checked,stream:$("s_stream").checked,scene_memory:$("s_mem").checked,memory_every:parseInt($("s_memevery").value)})});
+    body:JSON.stringify({depth:parseFloat($("s_depth").value),world_rounds:$("s_world").checked,mechanics:$("s_mech").checked,tone_steer:$("s_tone").checked,stream:$("s_stream").checked,scene_memory:$("s_mem").checked,memory_every:parseInt($("s_memevery").value),auto_consolidate:$("s_autocon").checked,auto_consolidate_apply:$("s_autocanon").checked,consolidate_every:parseInt($("s_conevery").value)})});
   CFG.stream=$("s_stream").checked;
   addTurn("sys","session settings applied.");await loadState();
 }
@@ -449,7 +452,8 @@ async function renderReader(st){
     (st.location?`<div class="kind" style="margin-top:10px">you are at</div><div style="color:var(--accent)">${esc(st.location)}</div>`:"")+
     (rep.length?`<div class="kind" style="margin-top:12px">how the world regards you</div>`+repHtml:"")+
     `<div class="kind" style="margin-top:14px">the plan · <a class="addlink" onclick="addThread()">＋ thread</a></div>`+
-    (plan||`<span style="color:var(--muted);font-size:12px">nothing ripening yet</span>`)+ck;
+    (plan||`<span style="color:var(--muted);font-size:12px">nothing ripening yet</span>`)+ck+
+    ((st.unconsolidated||0)>=6?`<div style="font-size:11px;color:var(--muted);margin-top:12px">◆ ${st.unconsolidated} turns un-consolidated${st.auto_consolidate?" · auto-folding":" — hit Consolidate to fold them into memory"}</div>`:"");
   _setTab("tab_cont");$("detailwhat").textContent="";
 }
 

@@ -10,7 +10,7 @@ import difflib
 import json
 import re
 from pathlib import Path
-from . import llm, canon, state, threads, reputation
+from . import llm, canon, state, threads, reputation, transcript
 
 _JSON_RE = re.compile(r"\{[\s\S]*\}")
 
@@ -340,3 +340,48 @@ def apply(proposals: dict, world: Path, state_path: Path, approve) -> dict:
         if touched:
             canon.write_node(world, name, node["body"], fm)
     return written
+
+
+# --- incremental consolidation: only fold in the turns SINCE the last pass, so the prompt stays
+# bounded no matter how long the campaign runs (the fix for the long-session consolidate timeout) ---
+
+def unconsolidated(tpath, spath):
+    """(new transcript entries since the last consolidation, current total count). The watermark is
+    `_consolidated` in state — how many transcript entries have already been folded in."""
+    lines = transcript.read_all(tpath)
+    wm = int(state.load(spath).get("_consolidated", 0) or 0)
+    return lines[wm:], len(lines)
+
+
+def mark_consolidated(spath, total: int) -> None:
+    """Advance the watermark past everything consolidated so far (blessed or declined — either way
+    those turns won't be re-proposed; they still live in the transcript + scene memory)."""
+    state.set_fact(spath, "_consolidated", int(total))
+
+
+def auto(cfg, tpath, world, spath, apply_canon: bool = False):
+    """Automated consolidation: propose from the NEW turns and fold in the result. Returns a report.
+    The DIODE: by default only the low-risk structured continuity (state facts, reputation, character
+    disposition/location, thread ripening) is auto-applied; new/edited CANON NODES and thread
+    RESOLUTION stay gated (queued) unless `apply_canon` is set — auto-authoring the world-bible
+    unattended is the write→re-read collapse this wall exists to prevent."""
+    new_lines, total = unconsolidated(tpath, spath)
+    if len([e for e in new_lines if e.get("role") == "player"]) < 1:
+        return {"applied": {}, "pending_nodes": [], "summary": "", "new": len(new_lines)}
+    existing = threads.load(spath.parent / "threads.json")
+    try:
+        proposals = propose(cfg, new_lines, existing, world=world)
+    except Exception as e:
+        return {"error": str(e), "new": len(new_lines)}
+
+    # gate: canon nodes + thread-resolution only apply when apply_canon is explicitly chosen
+    def approve(kind, name, payload):
+        if kind in ("node", "resolve") and not apply_canon:
+            return False
+        return True
+
+    written = apply(proposals, world, spath, approve)
+    mark_consolidated(spath, total)
+    pending = [n["name"] for n in _normalize(proposals)["nodes"]] if not apply_canon else []
+    return {"applied": written, "pending_nodes": pending,
+            "summary": proposals.get("summary", ""), "new": len(new_lines)}

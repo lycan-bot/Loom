@@ -67,6 +67,8 @@ def make_handler(cfg: dict):
                     "location": st_all.get("_location", ""),
                     "memory": st_all.get("_memory", "") if cfg.get("scene_memory") else "",
                     "steer": st_all.get("_steer", {}) if cfg.get("tone_steer") else {},
+                    "unconsolidated": max(0, len(transcript.read_all(tpath)) - int(st_all.get("_consolidated", 0) or 0)),
+                    "auto_consolidate": bool(cfg.get("auto_consolidate")),
                     "reputation": [{"who": w, "standing": int(e.get("standing", 0) or 0),
                                     "label": reputation.label(int(e.get("standing", 0) or 0)),
                                     "log": [s for s in (e.get("log") or []) if isinstance(s, str)]}
@@ -115,7 +117,10 @@ def make_handler(cfg: dict):
                                         "tone_steer": bool(cfg.get("tone_steer")),
                                         "stream": bool(cfg.get("stream")),
                                         "scene_memory": bool(cfg.get("scene_memory")),
-                                        "memory_every": cfg.get("memory_every", 4)})
+                                        "memory_every": cfg.get("memory_every", 4),
+                                        "auto_consolidate": bool(cfg.get("auto_consolidate")),
+                                        "auto_consolidate_apply": bool(cfg.get("auto_consolidate_apply")),
+                                        "consolidate_every": cfg.get("consolidate_every", 8)})
             if u.path == "/api/setting":
                 return self._send(200, setting.card(world))
             return self._send(404, {"error": "not found"})
@@ -217,13 +222,15 @@ def make_handler(cfg: dict):
                 except llm.LLMError as e:
                     return self._send(502, {"error": str(e)})
             if u.path == "/api/consolidate":
-                lines = transcript.read_all(tpath)
+                lines, total = consolidate.unconsolidated(tpath, spath)   # only the NEW turns (incremental)
                 if not lines:
                     return self._send(200, {"nodes": [], "state": {}, "threads_new": [],
-                                            "threads_resolved": [], "summary": "nothing to consolidate"})
+                                            "threads_resolved": [], "summary": "nothing new to consolidate"})
                 try:
                     existing = threads.load(spath.parent / "threads.json")
-                    return self._send(200, consolidate.propose(cfg, lines, existing, world=world))
+                    proposals = consolidate.propose(cfg, lines, existing, world=world)
+                    proposals["_total"] = total                          # so apply can advance the watermark
+                    return self._send(200, proposals)
                 except Exception as e:
                     return self._send(502, {"error": str(e)})
             if u.path == "/api/consolidate/apply":
@@ -241,6 +248,8 @@ def make_handler(cfg: dict):
                     written = consolidate.apply(
                         proposals, world, spath,
                         approve=lambda kind, name, _p: name in ok.get(kind, set()))
+                    consolidate.mark_consolidated(                        # advance the watermark past these turns
+                        spath, proposals.get("_total") or len(transcript.read_all(tpath)))
                 except Exception as e:
                     return self._send(502, {"error": str(e)})
                 return self._send(200, {"written": written})
@@ -311,6 +320,15 @@ def make_handler(cfg: dict):
                 if "memory_every" in body:
                     try:
                         up["memory_every"] = max(1, min(20, int(body["memory_every"])))
+                    except (TypeError, ValueError):
+                        pass
+                if "auto_consolidate" in body:
+                    up["auto_consolidate"] = bool(body["auto_consolidate"])
+                if "auto_consolidate_apply" in body:
+                    up["auto_consolidate_apply"] = bool(body["auto_consolidate_apply"])
+                if "consolidate_every" in body:
+                    try:
+                        up["consolidate_every"] = max(2, min(40, int(body["consolidate_every"])))
                     except (TypeError, ValueError):
                         pass
                 if up:
