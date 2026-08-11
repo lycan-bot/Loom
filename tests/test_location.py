@@ -4,7 +4,7 @@ place into that 'nearby' note vs the 'meanwhile' pulse elsewhere. Offline."""
 import tempfile
 import unittest
 from pathlib import Path
-from loom import narrate, worldturn, canon, state, llm, config
+from loom import narrate, worldturn, canon, state, llm, config, transcript
 
 
 def _camp():
@@ -75,6 +75,26 @@ class RoutingTest(unittest.TestCase):
             llm.complete = orig
         self.assertIn("grimoire from the shelf", state.load(camp / "state.json").get("_nearby", ""))  # co-located
         self.assertEqual(pulse, [])                                                                   # nothing to the pulse
+
+    def test_scene_present_npc_excluded_from_world_round(self):
+        # an NPC NAMED in the live scene (the narrator is voicing them) must not also run as an
+        # off-screen world-round actor — the fix for the companion appearing 'elsewhere'
+        camp = _camp()
+        canon.write_node(camp / "world", "Wren", "a cadet",
+                         {"kind": "character", "wants": "to master wards", "location": "Aldermere College"})
+        canon.write_node(camp / "world", "Professor Ysolde Finch", "a professor",
+                         {"kind": "character", "wants": "to document a familiar", "location": "The Grand Library"})
+        canon.write_node(camp / "world", "Vane", "a rogue",
+                         {"kind": "character", "wants": "the ledger", "location": "The Docks"})
+        transcript.append(camp / "t.jsonl", "player", "I lean against Wren and close my eyes")
+        transcript.append(camp / "t.jsonl", "narrator", "Wren rests a hand in your fur, thoughtful")
+        ex = worldturn.scene_characters(dict(config.DEFAULTS), camp / "world", camp / "t.jsonl")
+        self.assertIn("Wren", ex)                                     # named in the scene → excluded
+        self.assertNotIn("Vane", ex)                                 # not present
+        self.assertNotIn("Professor Ysolde Finch", ex)               # a title word ('Professor') must NOT match
+        names = [n[0]["name"] for n in worldturn.majors(camp / "world", exclude=ex)]
+        self.assertNotIn("Wren", names)                              # dropped from the round
+        self.assertIn("Vane", names)                                 # off-scene NPC still rounds
 
 
 if __name__ == "__main__":

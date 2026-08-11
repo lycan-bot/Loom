@@ -16,7 +16,8 @@ to be MUTABLE — an NPC's own turn can carry them elsewhere, so groups form and
 from __future__ import annotations
 import json
 import re
-from . import canon, npc, llm, state, player, retrieve, consolidate
+from pathlib import Path
+from . import canon, npc, llm, state, player, retrieve, consolidate, transcript, config
 
 _JSON_RE = re.compile(r"\{[\s\S]*\}")
 _MAX_TURNS = 4          # groups that act per round — the world moves without flooding the prompt
@@ -61,14 +62,48 @@ def _location(node, places) -> str:
     return ""
 
 
-def majors(world) -> list:
-    """The major NPCs — characters with a stated want — as (node, Moral, location)."""
+_TITLES = {"the", "a", "an", "inquisitor", "professor", "headmaster", "instructor", "master",
+           "mistress", "lord", "lady", "sir", "dame", "captain", "doctor", "dr", "mr", "mrs", "ms"}
+
+
+def scene_characters(cfg, world, tpath) -> set:
+    """Characters NAMED in the CURRENT scene (the last couple of turns) — the ones the narrator is
+    already voicing live. They must NOT also run as off-screen world-round actors: that's what put
+    Wren (the player's constant companion, in every scene) 'elsewhere, studying with Fáelán' while she
+    was right there. Detected by NAME MENTION, not retrieval — narration prose shares no vocabulary
+    with a character's card, it just says their name (BM25 mis-ranks it entirely); a distinctive
+    name-token (dropping titles like 'Professor') appearing in the recent text is the true signal."""
+    try:
+        recent = transcript.recent(tpath, 4)
+    except Exception:
+        return set()
+    text_tokens = set(re.findall(r"[\w']+", " ".join(
+        e.get("text", "") for e in recent if isinstance(e, dict)).lower()))
+    if not text_tokens:
+        return set()
+    present = set()
+    for n in canon.load_all(world):
+        if n["frontmatter"].get("kind") != "character":
+            continue
+        name_tokens = {t for t in re.findall(r"[\w']+", n["name"].lower())
+                       if t not in _TITLES and len(t) > 2}
+        if name_tokens & text_tokens:                # any distinctive name-token appears in the scene
+            present.add(n["name"])
+    return present
+
+
+def majors(world, exclude=()) -> list:
+    """The major NPCs — characters with a stated want — as (node, Moral, location). `exclude` (names)
+    drops NPCs currently in the live scene, so the world round only moves people who are elsewhere."""
+    exclude = set(exclude)
     nodes = canon.load_all(world)
     places = {n["name"] for n in nodes if n["frontmatter"].get("kind") == "place"}
     out = []
     for n in nodes:
         if n["frontmatter"].get("kind") != "character" or player.is_player(n):
             continue                              # the PLAYER's character never takes a world-round turn
+        if n["name"] in exclude:
+            continue                              # in the live scene — the narrator is already voicing them
         want = str(n["frontmatter"].get("wants", "")).strip()
         if not want:
             continue
@@ -91,11 +126,12 @@ def groups(majors_list) -> list:
     return sorted(list(by_loc.values()) + solo, key=lambda g: (-len(g), g[0][0]["name"]))
 
 
-def run(cfg, world) -> dict:
+def run(cfg, world, exclude=()) -> dict:
     """Play one world round: each group of major NPCs takes a turn. Propose-only — returns the
-    turns, writes nothing. `pending` is True when there were actors, even if the beat text failed
+    turns, writes nothing. `exclude` (names) are in the live scene and skipped. `pending` is True
+    when there were actors, even if the beat text failed
     (so a caller can distinguish 'no one has an agenda' from 'the model was unreachable')."""
-    gs = groups(majors(world))[:_MAX_TURNS]
+    gs = groups(majors(world, exclude))[:_MAX_TURNS]
     if not gs:
         return {"turns": [], "pending": False}
     lines = [f"- At {g[0][2] or 'parts unknown'}: "
@@ -158,7 +194,11 @@ def maybe_round(cfg, world, state_path) -> list:
     if n % cadence != 0:                                  # the world takes a round every `cadence` turns
         state.save(state_path, st)
         return []
-    turns = run(cfg, world)["turns"]
+    # NPCs the narrator is already voicing in the live scene are excluded — the world round is only for
+    # people ELSEWHERE (this is what finally keeps the in-scene companion out of the 'meanwhile' pulse)
+    tpath = Path(state_path).parent / config.transcript_path(cfg).name   # sibling of THIS state file, not the global one
+    in_scene = scene_characters(cfg, world, tpath)
+    turns = run(cfg, world, exclude=in_scene)["turns"]
     # co-located routing: a turn AT the player's current place folds into their SCENE (a 'nearby'
     # note narrate weaves into the next narration), rather than a detached 'meanwhile' pulse. The
     # rest — turns elsewhere in the world — stay the pulse.
