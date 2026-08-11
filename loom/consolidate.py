@@ -79,6 +79,35 @@ def window_fingerprint(lines) -> str:
     return h.hexdigest()[:16]
 
 
+def _looks_like_place_name(loc: str) -> bool:
+    """A place NAME is short and name-like ('The Salt & Anchor'); a corrupted location is a prose
+    CLAUSE ('The library of Aldermere College, where she continues to study ancient texts with
+    Fáelán.'). Reject the clause without a canon lookup — length, word count, sentence markers."""
+    low = loc.lower()
+    return (len(loc) <= 40 and len(loc.split()) <= 6
+            and not loc.rstrip().endswith((".", "!", "?"))
+            and not any(m in low for m in (",", " where ", " which ", " who ", " that ", " with ", " to ")))
+
+
+def _resolve_place(world, loc: str):
+    """A proposed NPC location, cleaned to a place: the canonical name of the place node it refers to,
+    a plausible NEW place name not yet in canon, or None. Consolidation must NEVER write free-text
+    into a `location` field — a bad archivist reply once wrote a whole narrative clause there, which
+    broke co-location routing and made the world round narrate the player as an off-scene NPC.
+      • resolves to an existing PLACE node → that node's name (normalizes the clause down to it)
+      • resolves to a NON-place node (a character, e.g. 'same as Wren') → None (a person isn't a place)
+      • no node match but looks like a place NAME → keep it (NPCs move to not-yet-noded places)
+      • otherwise (a prose clause) → None"""
+    loc = (loc or "").strip()
+    if not loc or world is None:
+        return None
+    resolved = _resolve_existing(world, loc)
+    if resolved:
+        node = canon.read_node(world, resolved)
+        return resolved if node and node["frontmatter"].get("kind") == "place" else None
+    return loc if _looks_like_place_name(loc) else None
+
+
 def _dicts(x):
     """Model output is grammar-valid JSON but NOT shape-checked; keep only the dict elements
     of a list so a botched container type is skipped, never crashed on."""
@@ -396,8 +425,11 @@ def apply(proposals: dict, world: Path, state_path: Path, approve,
             fm["disposition"] = cu["disposition"]
             written["dispositions"].append(name)
             touched = True
-        if cu["location"] and approve("location", name, cu["location"]):
-            fm["location"] = cu["location"]              # NPCs relocate over play → world-round groups shift
+        # a location MUST resolve to a real place node — never write the archivist's free-text clause
+        # (that corruption is what put Wren 'elsewhere with Fáelán' and broke co-location)
+        place = _resolve_place(world, cu["location"]) if cu["location"] else None
+        if place and approve("location", name, place):
+            fm["location"] = place                       # NPCs relocate over play → world-round groups shift
             written["locations"].append(name)
             touched = True
         if touched:

@@ -269,6 +269,44 @@ class DrainTest(unittest.TestCase):
         self.assertEqual(inbox.take(camp / "state.json"), [])                 # and not re-queued
 
 
+class LocationValidationTest(unittest.TestCase):
+    def _base(self, **over):
+        p = {"nodes": [], "state": {}, "threads_new": [], "threads_resolved": [],
+             "character_updates": [], "reputation": []}
+        p.update(over)
+        return p
+
+    def test_prose_location_normalizes_to_place_node(self):
+        # the bug: the archivist wrote a whole narrative clause into a `location` field, which broke
+        # co-location and put an in-scene NPC 'elsewhere'. It must resolve to the place node instead.
+        camp = _camp()
+        canon.write_node(camp / "world", "Aldermere College", "a college", {"kind": "place"})
+        canon.write_node(camp / "world", "Wren", "a cadet", {"kind": "character"})
+        consolidate.apply(self._base(character_updates=[
+            {"name": "Wren", "location": "The library of Aldermere College, where she studies ancient texts"}]),
+            camp / "world", camp / "state.json", lambda *a: True)
+        self.assertEqual(canon.read_node(camp / "world", "Wren")["frontmatter"].get("location"), "Aldermere College")
+
+    def test_unknown_place_is_not_written(self):
+        # a location naming no known place is dropped, never written as free text (no corruption)
+        camp = _camp()
+        canon.write_node(camp / "world", "Aldermere College", "a college", {"kind": "place"})
+        canon.write_node(camp / "world", "Wren", "a cadet", {"kind": "character", "location": "Aldermere College"})
+        consolidate.apply(self._base(character_updates=[
+            {"name": "Wren", "location": "somewhere over the rainbow, far away"}]),
+            camp / "world", camp / "state.json", lambda *a: True)
+        self.assertEqual(canon.read_node(camp / "world", "Wren")["frontmatter"].get("location"), "Aldermere College")  # unchanged
+
+    def test_a_character_is_never_a_place(self):
+        # 'same as Wren' (a character reference) must not become a location
+        camp = _camp()
+        canon.write_node(camp / "world", "Wren", "a cadet", {"kind": "character"})
+        canon.write_node(camp / "world", "Rook", "a rogue", {"kind": "character"})
+        consolidate.apply(self._base(character_updates=[{"name": "Rook", "location": "same as Wren"}]),
+                          camp / "world", camp / "state.json", lambda *a: True)
+        self.assertIsNone(canon.read_node(camp / "world", "Rook")["frontmatter"].get("location"))
+
+
 class WebLockTest(unittest.TestCase):
     def test_write_lock_covers_mutating_posts(self):
         # the single-writer invariant is enforced server-side: mutating POSTs take the write lock,
