@@ -11,7 +11,7 @@ import threading
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from . import config, canon, state, transcript, narrate, consolidate, llm, threads, imagine, guard, character, sleep, worldturn, player, generate, setting, undo, reputation, salience, assistant
+from . import config, canon, state, transcript, narrate, consolidate, llm, threads, imagine, guard, character, sleep, worldturn, player, generate, setting, undo, reputation, salience, assistant, recall
 
 STATIC = Path(__file__).resolve().parent / "static"
 
@@ -102,6 +102,12 @@ def make_handler(cfg: dict):
                     {"id": t.id, "question": t.question, "kind": t.kind, "status": t.status,
                      "readiness": round(t.readiness, 2), "entities": t.entities, "seed": t.seed,
                      "payoff": t.payoff} for t in threads.load(spath.parent / "threads.json")]})
+            if u.path == "/api/recall":
+                # episodic recall: search the story's OWN transcript for the turns matching a query
+                query = (q.get("q") or [""])[0]
+                kraw = (q.get("k") or ["6"])[0]
+                k = max(1, min(20, int(kraw))) if kraw.isdigit() else 6
+                return self._send(200, {"results": recall.search(tpath, query, k=k)})
             if u.path == "/api/pending":
                 # canon-node proposals auto-consolidation PARKED for the operator to bless (the diode's pen) —
                 # the fix for auto-fold silently dropping canon past the watermark

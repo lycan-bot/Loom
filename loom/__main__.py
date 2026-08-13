@@ -23,7 +23,7 @@ Usage:
 """
 from __future__ import annotations
 import sys
-from . import config, narrate, consolidate, seal, transcript, canon, state, llm, threads, npc, imagine, guard, sleep, worldturn, generate, undo, reputation
+from . import config, narrate, consolidate, seal, transcript, canon, state, llm, threads, npc, imagine, guard, sleep, worldturn, generate, undo, reputation, recall
 
 
 def _paths(cfg):
@@ -351,6 +351,18 @@ def cmd_npcs(cfg):
           + ("".join(f"\n  + {q}" for q in added) if added else "."))
 
 
+def cmd_recall(cfg, query):
+    tpath, _world, spath = _paths(cfg)
+    hits = recall.search(tpath, query, k=6)
+    if not hits:
+        print(f"nothing in the record matches {query!r}.")
+        return
+    print(f"the record, on {query!r}:")
+    for h in hits:
+        print(f"\n  [turn {h['turn']}] you: {h['player'][:100]}")
+        print(f"           → {h['narrator'][:180]}")
+
+
 def main(argv=None):
     argv = argv if argv is not None else sys.argv[1:]
     cfg = config.load()
@@ -395,6 +407,8 @@ def main(argv=None):
         cmd_undo(cfg)
     elif cmd == "reputation":
         cmd_reputation(cfg)
+    elif cmd == "recall" and len(argv) > 1:
+        cmd_recall(cfg, " ".join(argv[1:]))
     else:
         print(__doc__)
 
