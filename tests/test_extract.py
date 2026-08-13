@@ -46,6 +46,33 @@ class ExtractTest(unittest.TestCase):
         self.assertTrue(any("Varro" in n for n in names))         # recurring non-canon name flagged
         self.assertFalse(any("Wren" in n for n in names))         # canon entity is NOT a miss
 
+    def test_sentence_start_name_is_caught(self):
+        # red-team D2: a name introduced at a sentence boundary must be seen, not just mid-sentence
+        self.assertIn("Corvane", extract.candidates("The door opened. Corvane stepped in and looked around."))
+
+    def test_common_sentence_starter_never_flagged(self):
+        # 'Together' recurs at sentence start but appears lowercase elsewhere / is common → not a name
+        camp = _camp()
+        canon.write_node(camp / "world", "Wren", "a cadet", {"kind": "character"})
+        t = camp / "t.jsonl"
+        transcript.append(t, "player", "x")
+        transcript.append(t, "narrator", "Together they walked, sitting together by the fire.")
+        transcript.append(t, "player", "y")
+        transcript.append(t, "narrator", "Together again they sat, huddled close together.")
+        self.assertNotIn("Together", [e["name"] for e in extract.emergent(t, camp / "world", min_turns=2)])
+
+    def test_subset_exclusion_keeps_distinct_confabulation(self):
+        # red-team D1/D3: 'Grand Vizier' shares only 'grand' with canon 'The Grand Library' — a DISTINCT
+        # entity, must survive (not be swallowed by a union-token match)
+        camp = _camp()
+        canon.write_node(camp / "world", "The Grand Library", "a hall", {"kind": "place"})
+        t = camp / "t.jsonl"
+        transcript.append(t, "player", "x")
+        transcript.append(t, "narrator", "In the halls, the sly Grand Vizier schemes against the crown.")
+        transcript.append(t, "player", "y")
+        transcript.append(t, "narrator", "Once more the Grand Vizier plots his ascent.")
+        self.assertTrue(any("Vizier" in n for n in [e["name"] for e in extract.emergent(t, camp / "world", min_turns=2)]))
+
     def test_emergent_ignores_a_oneoff(self):
         camp = _camp()
         canon.write_node(camp / "world", "Wren", "a cadet", {"kind": "character"})
