@@ -60,8 +60,10 @@ def _prepare(player_input: str, cfg: dict, tpath: Path, world: Path, spath: Path
     recent = transcript.recent(tpath, cfg["recent_turns"])
     pace = pacing.read(recent, tension)
     # episodic recall: when the player asks about the ESTABLISHED past ("what did she say?"), retrieve
-    # the actual earlier turn(s) so the narrator quotes the real line instead of confabulating one
-    recalled = recall.search(tpath, player_input, k=2) if recall.references_past(player_input) else []
+    # the actual earlier turn(s) so the narrator quotes the real line instead of confabulating one.
+    # Search the cue-STRIPPED query — the trigger words ("what did", "said") must not bias the ranking.
+    _rq = recall.recall_query(player_input)
+    recalled = recall.search(tpath, _rq, k=2) if _rq else []
 
     # proximity for the plan = only GENUINELY-matched canon (score>0). The retrieval
     # fallback returns all nodes at score 0.0 to ground a vague turn — but those must NOT

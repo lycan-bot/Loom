@@ -47,10 +47,25 @@ class RecallTest(unittest.TestCase):
 
     def test_references_past_prefilter(self):
         for yes in ("what did she say earlier?", "do you remember when we met?",
-                    "what exactly did the innkeeper tell me", "recall the oath"):
+                    "what exactly did the innkeeper tell me", "remember when we swore the oath"):
             self.assertTrue(recall.references_past(yes), yes)
         for no in ("I draw my sword and charge", "I look around the room", "we go north"):
             self.assertFalse(recall.references_past(no), no)
+
+    def test_forward_filler_does_not_false_fire(self):
+        # the red-team bug: common forward-play phrases must NOT trigger recall (they'd inject an
+        # irrelevant old turn as 'quote faithfully')
+        for no in ("I said a prayer and step outside", "I recall a knife in my belt",
+                   "I read the words carved on the door", "she mentioned to me she was leaving"):
+            self.assertFalse(recall.references_past(no), no)
+
+    def test_recall_query_strips_the_cue(self):
+        # the cue phrase is a trigger, not part of the search — leaving it in pollutes BM25 ranking
+        q = recall.recall_query("what exactly did the innkeeper say about the north road?")
+        self.assertIsNotNone(q)
+        self.assertNotIn("what exactly did", q)
+        self.assertIn("innkeeper", q)
+        self.assertIsNone(recall.recall_query("I ride north out of town"))
 
 
 class NarrateIntegrationTest(unittest.TestCase):

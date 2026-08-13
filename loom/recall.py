@@ -14,21 +14,35 @@ from __future__ import annotations
 from . import transcript, retrieve
 
 # retrospective cues — the player is asking about the ESTABLISHED past, not narrating a new action.
-# Deliberately specific: recall only fires on a clear back-reference, so it's not a per-turn cost.
+# Deliberately UNAMBIGUOUS: bare filler verbs ("i said", "recall", "mentioned", "told me", "the words")
+# were dropped because they fire on ordinary forward play ("I said a prayer and step outside") AND the
+# filler token then pollutes the BM25 query, injecting an irrelevant old turn as 'quote FAITHFULLY'.
 _REF_CUES = (
-    "what did", "what exactly", "what had", "what were", "what was said", "who said", "you said",
-    "she said", "he said", "they said", "we said", "i said", "did she say", "did he say",
-    "mentioned", "told me", "told you", "told us", "said about", "said to", "remember when",
-    "remember what", "recall", "last time", "when did", "when was", "back then", "earlier you",
-    "you told", "already said", "we discussed", "we talked about", "the words", "verbatim",
+    "what did", "what exactly did", "what had", "what were", "what was said", "what was her",
+    "what was his", "what was their", "what happened when", "who said", "you said", "she said",
+    "he said", "they said", "did she say", "did he say", "did they say", "said about",
+    "remember when", "remember what", "do you remember", "last time", "when did", "when was",
+    "back then", "earlier you", "you told", "we discussed", "we talked about", "remind me", "how did",
 )
 
 
-def references_past(text: str) -> bool:
-    """True when the player's input asks about the established past (so recall should run). A keyword
-    prefilter — a clear back-reference cue — so recall costs nothing on an ordinary forward action."""
+def recall_query(text: str):
+    """If the player is asking about the past, return the SEARCH query with the cue phrase stripped
+    (the cue is a trigger, not part of what to search for — leaving 'said'/'did' in pollutes BM25 and
+    up-ranks any dialogue-heavy turn). Returns None when no cue fires, so recall costs nothing on an
+    ordinary forward action."""
     low = (text or "").lower()
-    return any(c in low for c in _REF_CUES)
+    fired = [c for c in _REF_CUES if c in low]
+    if not fired:
+        return None
+    for c in fired:
+        low = low.replace(c, " ")
+    return low.strip() or (text or "").strip()          # if stripping emptied it, fall back to raw
+
+
+def references_past(text: str) -> bool:
+    """True when the player's input asks about the established past (so recall should run)."""
+    return recall_query(text) is not None
 
 
 def pairs(tpath) -> list[dict]:
