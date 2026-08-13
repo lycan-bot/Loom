@@ -195,8 +195,8 @@ def cmd_depth(cfg, arg):
 
 
 def cmd_check(cfg):
-    _, world, spath = _paths(cfg)
-    findings = guard.check(world, spath.parent / "threads.json")
+    tpath, world, spath = _paths(cfg)
+    findings = guard.check(world, spath.parent / "threads.json", tpath=tpath, spath=spath)
     if not findings:
         print("continuity: clean ✓")
         return

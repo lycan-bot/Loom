@@ -119,7 +119,7 @@ def make_handler(cfg: dict):
                      "body": n.get("body", ""), "fields": n.get("fields") or {}}
                     for n in consolidate.pending(spath)]})
             if u.path == "/api/check":
-                fs = guard.check(world, spath.parent / "threads.json")
+                fs = guard.check(world, spath.parent / "threads.json", tpath=tpath, spath=spath)
                 return self._send(200, {"findings": [{"severity": f.severity, "kind": f.kind,
                                                        "message": f.message} for f in fs]})
             if u.path == "/api/node":
