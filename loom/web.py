@@ -11,7 +11,7 @@ import threading
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from . import config, canon, state, transcript, narrate, consolidate, llm, threads, imagine, guard, character, sleep, worldturn, player, generate, setting, undo, reputation, salience, assistant, recall
+from . import config, canon, state, transcript, narrate, consolidate, llm, threads, imagine, guard, character, sleep, worldturn, player, generate, setting, undo, reputation, salience, assistant, recall, extract
 
 STATIC = Path(__file__).resolve().parent / "static"
 
@@ -102,6 +102,9 @@ def make_handler(cfg: dict):
                     {"id": t.id, "question": t.question, "kind": t.kind, "status": t.status,
                      "readiness": round(t.readiness, 2), "entities": t.entities, "seed": t.seed,
                      "payoff": t.payoff} for t in threads.load(spath.parent / "threads.json")]})
+            if u.path == "/api/entities":
+                # the confabulation signal: names the narrator keeps using that aren't in canon
+                return self._send(200, {"emergent": extract.emergent(tpath, world)})
             if u.path == "/api/recall":
                 # episodic recall: search the story's OWN transcript for the turns matching a query
                 query = (q.get("q") or [""])[0]

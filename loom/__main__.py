@@ -23,7 +23,7 @@ Usage:
 """
 from __future__ import annotations
 import sys
-from . import config, narrate, consolidate, seal, transcript, canon, state, llm, threads, npc, imagine, guard, sleep, worldturn, generate, undo, reputation, recall
+from . import config, narrate, consolidate, seal, transcript, canon, state, llm, threads, npc, imagine, guard, sleep, worldturn, generate, undo, reputation, recall, extract
 
 
 def _paths(cfg):
@@ -363,6 +363,17 @@ def cmd_recall(cfg, query):
         print(f"           → {h['narrator'][:180]}")
 
 
+def cmd_entities(cfg):
+    tpath, world, _spath = _paths(cfg)
+    em = extract.emergent(tpath, world)
+    if not em:
+        print("no unestablished names — the narrator is staying grounded in canon.")
+        return
+    print("names the narrator keeps using that AREN'T in canon (add to canon, or a confabulation to catch):")
+    for e in em:
+        print(f"  {e['name']}  — {e['count']} turns {e['turns']}")
+
+
 def main(argv=None):
     argv = argv if argv is not None else sys.argv[1:]
     cfg = config.load()
@@ -409,6 +420,8 @@ def main(argv=None):
         cmd_reputation(cfg)
     elif cmd == "recall" and len(argv) > 1:
         cmd_recall(cfg, " ".join(argv[1:]))
+    elif cmd == "entities":
+        cmd_entities(cfg)
     else:
         print(__doc__)
 
