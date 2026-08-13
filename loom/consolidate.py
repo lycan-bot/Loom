@@ -11,7 +11,7 @@ import hashlib
 import json
 import re
 from pathlib import Path
-from . import llm, canon, state, threads, reputation, transcript, inbox
+from . import llm, canon, state, threads, reputation, transcript, inbox, episodic
 
 _JSON_RE = re.compile(r"\{[\s\S]*\}")
 
@@ -180,6 +180,12 @@ def _normalize(proposals: dict) -> dict:
             continue
         rep.append({"who": who, "delta": max(-3, min(3, delta)), "because": _s(r.get("because")).strip()})
 
+    events = []
+    for ev in _dicts(proposals.get("events")):
+        what = _s(ev.get("what")).strip()
+        if what:
+            events.append({"what": what, "when": _s(ev.get("when")).strip()})
+
     resolved_raw = proposals.get("threads_resolved")
     return {
         "nodes": nodes,
@@ -188,6 +194,7 @@ def _normalize(proposals: dict) -> dict:
         "threads_resolved": [r for r in resolved_raw if isinstance(r, str)] if isinstance(resolved_raw, list) else [],
         "character_updates": updates,
         "reputation": rep,
+        "events": events,
     }
 
 
@@ -238,10 +245,12 @@ Respond with ONE json object:
   "threads_resolved": ["<id of an open thread the session ANSWERED, if any>"],
   "character_updates": [{"name": "an existing character", "disposition": "how they now feel toward the player, ONLY if it clearly shifted this session", "location": "the place they are now, ONLY if they moved this session"}],
   "reputation": [{"who": "a faction, group, or notable person", "delta": -1, "because": "the DEED this session that moved their regard for the player (a small integer -3..3; negative = worse)"}],
+  "events":  [{"what": "a concrete thing that HAPPENED this session — a beat worth remembering later, in past tense", "when": "(optional) the in-fiction time it happened ('the next morning', 'that night', 'days later') — ONLY if the prose states it"}],
   "summary": "one sentence on what changed"
 }
 Only open a thread for a genuine NEW dramatic question the session actually raised; only resolve \
-one it truly closed. If none, use empty lists.
+one it truly closed. In `events`, list what actually happened (grounded in the log, not invented); \
+give `when` only if the prose says so. If a section has nothing, use an empty list.
 
 PLAY LOG:
 %s
@@ -266,6 +275,8 @@ _SCHEMA = {
             "name": {"type": "string"}, "disposition": {"type": "string"}, "location": {"type": "string"}}}},
         "reputation": {"type": "array", "items": {"type": "object", "properties": {
             "who": {"type": "string"}, "delta": {"type": "integer"}, "because": {"type": "string"}}}},
+        "events": {"type": "array", "items": {"type": "object", "properties": {
+            "what": {"type": "string"}, "when": {"type": "string"}}}},
         "summary": {"type": "string"},
     },
 }
@@ -298,8 +309,8 @@ def propose(cfg: dict, session_lines: list[dict], existing_threads=None, world=N
     if not m:
         raise ValueError(f"no JSON object in consolidation output: {raw[:200]}")
     data = _loads_lenient(m.group(0))
-    for key, default in (("nodes", []), ("state", {}), ("threads_new", []),
-                         ("threads_resolved", []), ("character_updates", []), ("reputation", []), ("summary", "")):
+    for key, default in (("nodes", []), ("state", {}), ("threads_new", []), ("threads_resolved", []),
+                         ("character_updates", []), ("reputation", []), ("events", []), ("summary", "")):
         data.setdefault(key, default)
     return data
 
@@ -322,7 +333,7 @@ def apply(proposals: dict, world: Path, state_path: Path, approve,
     """
     p = _normalize(proposals)
     written: dict[str, list] = {"nodes": [], "state": [], "threads": [], "resolved": [],
-                                "dispositions": [], "locations": [], "reputation": []}
+                                "dispositions": [], "locations": [], "reputation": [], "events": []}
     for node in p["nodes"]:
         name, body, fields = node["name"], node["body"], node["fields"]
         if not approve("node", name, node):
@@ -384,6 +395,14 @@ def apply(proposals: dict, world: Path, state_path: Path, approve,
         changed = True
     if changed:
         state.save(state_path, st)
+
+    # the timeline spine: record the session's events with the real-turn range they came from (deed_window)
+    # so "when was that?" resolves on two clocks. A factual log (blessed side of the diode) — always recorded.
+    if p["events"]:
+        ts, te = (deed_window if deed_window else (None, None))
+        n_ev = episodic.record(state_path, p["events"], turn_start=ts, turn_end=te)
+        if n_ev:
+            written["events"] = [e["what"] for e in p["events"]][:n_ev]
 
     # story threads: open new dramatic questions, resolve answered ones (the diode gates both)
     thpath = Path(state_path).parent / "threads.json"

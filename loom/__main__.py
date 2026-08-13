@@ -23,7 +23,7 @@ Usage:
 """
 from __future__ import annotations
 import sys
-from . import config, narrate, consolidate, seal, transcript, canon, state, llm, threads, npc, imagine, guard, sleep, worldturn, generate, undo, reputation, recall, extract
+from . import config, narrate, consolidate, seal, transcript, canon, state, llm, threads, npc, imagine, guard, sleep, worldturn, generate, undo, reputation, recall, extract, episodic
 
 
 def _paths(cfg):
@@ -374,6 +374,20 @@ def cmd_entities(cfg):
         print(f"  {e['name']}  — {e['count']} turns {e['turns']}")
 
 
+def cmd_timeline(cfg, query=""):
+    _, _world, spath = _paths(cfg)
+    events = episodic.query(spath, query) if query else episodic.entries(spath)
+    if not events:
+        print(f"nothing on the timeline matches {query!r}." if query
+              else "the timeline is empty — events are recorded at consolidation.")
+        return
+    print(f"the timeline{f' — {query!r}' if query else ''}:")
+    for e in events:
+        ts = e.get("turn_start")
+        when = e.get("when") or (f"turns {ts}-{e.get('turn_end')}" if ts is not None else "?")
+        print(f"  [{when}] {e['what']}")
+
+
 def main(argv=None):
     argv = argv if argv is not None else sys.argv[1:]
     cfg = config.load()
@@ -422,6 +436,8 @@ def main(argv=None):
         cmd_recall(cfg, " ".join(argv[1:]))
     elif cmd == "entities":
         cmd_entities(cfg)
+    elif cmd == "timeline":
+        cmd_timeline(cfg, " ".join(argv[1:]))
     else:
         print(__doc__)
 
