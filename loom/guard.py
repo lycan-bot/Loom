@@ -61,19 +61,27 @@ DETECTORS = [dangling_links, thread_unknown_entities, orphan_nodes]   # structur
 # CONTRADICTING its own canon. Signature (nodes, thr, ctx) where ctx = {world, tpath, spath}. Advisory. ---
 
 _DEAD_STATUS = {"dead", "deceased", "slain", "killed", "fallen", "perished"}
-_DEAD_RE = re.compile(
-    r"\b(?:is dead|lies dead|now dead|was slain|were slain|was killed|were killed|has died|had died|"
-    r"died|perished|passed away|is deceased|met (?:his|her|their) death|drew (?:his|her|their) last breath)\b",
-    re.I)
+_ALIVE_STATUS = {"alive", "living", "well"}
+# ONLY an explicit author marker — a parenthetical '(deceased)' or an inline 'status: dead'. NOT free
+# prose: a flat regex can't tell 'Varro was slain' (he died) from 'her sister was slain' (she didn't)
+# or 'in her nightmares she was slain' (negated), so incidental prose is never treated as a death.
+_DEAD_MARKER_RE = re.compile(
+    r"[\(\[](?:dead|deceased|slain|killed|late)[\)\]]|"
+    r"\b(?:status|fate|state)\s*[:=]\s*(?:dead|deceased|slain|killed)\b", re.I)
 
 
 def _canonically_dead(node) -> bool:
+    """Whether canon marks this character dead. Structured frontmatter is AUTHORITATIVE (an explicit
+    `status: alive` / `alive: yes` skips the body entirely); the body counts only via an explicit
+    death MARKER, never incidental backstory prose (which can't be attributed to the right subject)."""
     fm = node["frontmatter"]
-    if any(str(fm.get(k, "")).strip().lower() in _DEAD_STATUS for k in ("status", "fate", "state")):
+    alive = str(fm.get("alive", "")).strip().lower()
+    status = " ".join(str(fm.get(k, "")).strip().lower() for k in ("status", "fate", "state")).split()
+    if alive in ("no", "false") or any(w in _DEAD_STATUS for w in status):
         return True
-    if str(fm.get("alive", "")).strip().lower() in ("no", "false"):
-        return True
-    return bool(_DEAD_RE.search(node.get("body", "") or ""))
+    if alive in ("yes", "true") or any(w in _ALIVE_STATUS for w in status):
+        return False                                   # explicit alive → authoritative, ignore the body
+    return bool(_DEAD_MARKER_RE.search(node.get("body", "") or ""))
 
 
 def _recent_text(tpath, n_pairs=6) -> str:
@@ -89,9 +97,9 @@ def dead_but_active(nodes, thr, ctx):
     if not dead:
         return []
     present = set(extract.present(_recent_text(ctx["tpath"]), ctx["world"]))
-    return [Finding("high", "dead-but-active",
-                    f"'{n['name']}' is marked dead in canon but appears in a recent turn "
-                    "— a resurrection the story dropped, or a stale death record")
+    return [Finding("med", "dead-but-active",
+                    f"'{n['name']}' is marked dead in canon but is mentioned in a recent turn "
+                    "— a stale death record, or a resurrection the story dropped")
             for n in dead if n["name"] in present]
 
 

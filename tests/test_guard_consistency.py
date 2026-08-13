@@ -16,14 +16,34 @@ class ConsistencyTest(unittest.TestCase):
     def _check(self, camp, t):
         return guard.check(camp / "world", camp / "threads.json", tpath=t, spath=camp / "state.json")
 
-    def test_dead_but_active_from_body_phrase(self):
+    def test_dead_but_active_from_body_marker(self):
         camp = _camp()
-        canon.write_node(camp / "world", "Varro", "a knight who was slain at the bridge last winter",
-                         {"kind": "character"})
+        canon.write_node(camp / "world", "Varro", "a knight, (deceased), who fell at the bridge",
+                         {"kind": "character"})               # explicit marker, not incidental prose
         t = camp / "t.jsonl"
         transcript.append(t, "player", "x")
         transcript.append(t, "narrator", "Varro raises his sword and charges into the fray.")
         self.assertIn("dead-but-active", [f.kind for f in self._check(camp, t)])
+
+    def test_explicit_alive_status_overrides_body_prose(self):
+        # red-team D1: a living character whose BACKSTORY mentions violence/death must not be flagged
+        camp = _camp()
+        canon.write_node(camp / "world", "Amara", "In her nightmares she was slain a hundred times, yet she woke.",
+                         {"kind": "character", "status": "alive"})
+        t = camp / "t.jsonl"
+        transcript.append(t, "player", "x")
+        transcript.append(t, "narrator", "Amara steps forward, very much alive.")
+        self.assertFalse(any(f.kind == "dead-but-active" for f in self._check(camp, t)))
+
+    def test_incidental_death_prose_not_flagged(self):
+        # red-team D1: prose about ANOTHER character's death (no marker, no status) must not fire
+        camp = _camp()
+        canon.write_node(camp / "world", "Bran", "His sister died at the siege; he alone survived, grieving.",
+                         {"kind": "character"})
+        t = camp / "t.jsonl"
+        transcript.append(t, "player", "x")
+        transcript.append(t, "narrator", "Bran draws his blade and stands ready.")
+        self.assertFalse(any(f.kind == "dead-but-active" for f in self._check(camp, t)))
 
     def test_dead_but_active_from_status_field(self):
         camp = _camp()
