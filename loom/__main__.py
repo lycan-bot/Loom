@@ -383,8 +383,8 @@ def cmd_timeline(cfg, query=""):
         return
     print(f"the timeline{f' — {query!r}' if query else ''}:")
     for e in events:
-        ts = e.get("turn_start")
-        when = e.get("when") or (f"turns {ts}-{e.get('turn_end')}" if ts is not None else "?")
+        ts = e.get("entry_start")
+        when = e.get("when") or (f"entries {ts}-{e.get('entry_end')}" if ts is not None else "?")
         print(f"  [{when}] {e['what']}")
 
 

@@ -46,8 +46,13 @@ def snapshot(tpath: Path, spath: Path) -> None:
     """Capture the pre-turn state so this turn can be taken back. Call BEFORE any mutation."""
     tpath, spath = Path(tpath), Path(spath)
     thpath = spath.parent / "threads.json"
+    epath = spath.parent / "episodic.jsonl"
     snap = {
         "n_transcript": len(transcript.read_all(tpath)),
+        # the episodic timeline is append-only too — remember its length so undo can truncate any events
+        # a fold appended on the undone turns (else the timeline asserts a beat that no longer happened).
+        # Captured AFTER _prepare's drain, so a fold that legitimately landed this turn is preserved.
+        "n_episodic": len([ln for ln in epath.read_text(encoding="utf-8").splitlines() if ln.strip()]) if epath.exists() else 0,
         "threads": thpath.read_text(encoding="utf-8") if thpath.exists() else None,
         "state": spath.read_text(encoding="utf-8") if spath.exists() else None,
     }
@@ -88,6 +93,14 @@ def undo(tpath: Path, spath: Path) -> bool:
     n = int(snap.get("n_transcript", 0) or 0)
     entries = transcript.read_all(tpath)[:n]
     _atomic_write(tpath, "".join(json.dumps(e, ensure_ascii=False) + "\n" for e in entries))
+
+    # truncate the append-only episodic timeline back to its pre-turn length, reversing any events a
+    # fold on the undone turns appended (episodic.jsonl is a separate file undo would otherwise miss)
+    epath = spath.parent / "episodic.jsonl"
+    ne = snap.get("n_episodic")
+    if ne is not None and epath.exists():
+        elines = [ln for ln in epath.read_text(encoding="utf-8").splitlines() if ln.strip()][:int(ne)]
+        _atomic_write(epath, ("\n".join(elines) + "\n") if elines else "")
 
     # restore threads.json + state.json to their pre-turn bytes (or remove if they didn't exist)
     thpath = spath.parent / "threads.json"

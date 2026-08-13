@@ -32,8 +32,8 @@ def _timeline_text(events: list[dict]) -> str:
     out = []
     for e in events:
         when = e.get("when") or ""
-        ts, te = e.get("turn_start"), e.get("turn_end")
-        clock = when or (f"around turn {ts}-{te}" if ts is not None else "")
+        ts, te = e.get("entry_start"), e.get("entry_end")
+        clock = when or (f"around entry {ts}-{te}" if ts is not None else "")
         out.append(f"- {e.get('what', '')}" + (f"  ({clock})" if clock else ""))
     return "\n".join(out)
 

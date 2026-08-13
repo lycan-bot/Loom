@@ -47,20 +47,21 @@ def entries(spath) -> list[dict]:
     return out
 
 
-def record(spath, events, turn_start=None, turn_end=None, source="play") -> int:
-    """Append events to the timeline. Each event is {what, when?}; the real-turn clock (turn_start,
-    turn_end) and source are stamped here. Dedup by (turn_start, normalized what) so a re-consolidated
-    window doesn't double-log. Returns how many were newly written."""
-    fresh, seen = [], {(e.get("turn_start"), _norm(e.get("what"))) for e in entries(spath)}
+def record(spath, events, entry_start=None, entry_end=None, source="play") -> int:
+    """Append events to the timeline. Each event is {what, when?}; the real clock is the TRANSCRIPT-
+    ENTRY range (entry_start, entry_end) — entry indices, not turn/pair counts — plus the source.
+    Dedup by (entry_start, normalized what) so a re-consolidated window doesn't double-log. Returns
+    how many were newly written."""
+    fresh, seen = [], {(e.get("entry_start"), _norm(e.get("what"))) for e in entries(spath)}
     for e in events or []:
         if not (isinstance(e, dict) and str(e.get("what", "")).strip()):
             continue
-        row = {"what": str(e.get("what", "")).strip(), "turn_start": turn_start, "turn_end": turn_end,
+        row = {"what": str(e.get("what", "")).strip(), "entry_start": entry_start, "entry_end": entry_end,
                "source": source}
         when = str(e.get("when", "")).strip()
         if when:
             row["when"] = when                            # the in-fiction 'story time' clock (best-effort)
-        key = (turn_start, _norm(row["what"]))
+        key = (entry_start, _norm(row["what"]))
         if key in seen:
             continue
         seen.add(key)
@@ -73,17 +74,25 @@ def record(spath, events, turn_start=None, turn_end=None, source="play") -> int:
     return len(fresh)
 
 
+_STOP = frozenset((
+    "the a an and or but of to in on at by for with when where why how what who whom which that this"
+    " these those did do does was were is are be been am has have had will would can could may might"
+    " we you they she he it him her them us i me my your our their his its there then from as so if"
+    " about into over under after before again ago long time happen happened").split())
+
+
 def query(spath, q, k: int = 6) -> list[dict]:
-    """Timeline events most relevant to `q` (lexical token-overlap over the event text + story time).
-    'when did we meet the professor?' → the event(s) with both clocks."""
-    qtoks = {t for t in re.findall(r"\w+", (q or "").lower()) if len(t) > 2}
+    """Timeline events most relevant to `q`. Query stopwords are dropped, then BM25 (the ranker recall
+    uses) over the event text + story time — so 'when did the ritual fail?' searches on 'ritual fail'
+    and never surfaces an unrelated dragon beat on a shared 'the'. Only genuine matches (score>0)."""
+    from . import retrieve
+    evs = entries(spath)
+    if not evs:
+        return []
+    qtoks = [t for t in re.findall(r"[a-z0-9]+", (q or "").lower()) if len(t) > 2 and t not in _STOP]
     if not qtoks:
         return []
-    scored = []
-    for e in entries(spath):
-        etoks = set(re.findall(r"\w+", (str(e.get("what", "")) + " " + str(e.get("when", ""))).lower()))
-        overlap = len(qtoks & etoks)
-        if overlap:
-            scored.append((overlap, e))
-    scored.sort(key=lambda x: (-x[0], x[1].get("turn_start") or 0))
-    return [e for _s, e in scored[:k]]
+    docs = [{"name": str(i), "body": (str(e.get("what", "")) + " " + str(e.get("when", ""))).strip()}
+            for i, e in enumerate(evs)]
+    by_i = {str(i): e for i, e in enumerate(evs)}
+    return [by_i[name] for name, score in retrieve._bm25(" ".join(qtoks), docs)[:k] if score > 0 and name in by_i]

@@ -400,7 +400,7 @@ def apply(proposals: dict, world: Path, state_path: Path, approve,
     # so "when was that?" resolves on two clocks. A factual log (blessed side of the diode) — always recorded.
     if p["events"]:
         ts, te = (deed_window if deed_window else (None, None))
-        n_ev = episodic.record(state_path, p["events"], turn_start=ts, turn_end=te)
+        n_ev = episodic.record(state_path, p["events"], entry_start=ts, entry_end=te)
         if n_ev:
             written["events"] = [e["what"] for e in p["events"]][:n_ev]
 
