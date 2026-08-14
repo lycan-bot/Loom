@@ -23,7 +23,7 @@ Usage:
 """
 from __future__ import annotations
 import sys
-from . import config, narrate, consolidate, seal, transcript, canon, state, llm, threads, npc, imagine, guard, sleep, worldturn, generate, undo, reputation, recall, extract, episodic
+from . import config, narrate, consolidate, seal, transcript, canon, state, llm, threads, npc, imagine, guard, sleep, worldturn, generate, undo, reputation, recall, extract, episodic, compact
 
 
 def _paths(cfg):
@@ -388,6 +388,34 @@ def cmd_timeline(cfg, query=""):
         print(f"  [{when}] {e['what']}")
 
 
+def cmd_compact(cfg, name=""):
+    _, world, _spath = _paths(cfg)
+    if not name:
+        cands = compact.oversized(world)
+        if not cands:
+            print("no bloated nodes — canon is tidy.")
+            return
+        print("bloated nodes (run 'loom compact <name>' to distill):")
+        for n in cands:
+            print(f"  {n['name']}  ({len(n['body'])} chars)")
+        return
+    node = canon.read_node(world, name)
+    if not node:
+        print(f"no such node: {name!r}")
+        return
+    print(f"distilling '{node['name']}' ({len(node['body'])} chars)…")
+    try:
+        distilled = compact.propose(node, cfg)
+    except Exception as e:
+        print(f"[!] failed: {e}")
+        return
+    ok, reason = compact.verify(node["body"], distilled)
+    print(f"  -> {len(distilled)} chars; {'OK' if ok else 'REFUSED — ' + reason}")
+    if ok and input("apply? [y/N] ").strip().lower() in ("y", "yes"):
+        compact.apply(world, node["name"], distilled)
+        print("compacted.")
+
+
 def main(argv=None):
     argv = argv if argv is not None else sys.argv[1:]
     cfg = config.load()
@@ -438,6 +466,8 @@ def main(argv=None):
         cmd_entities(cfg)
     elif cmd == "timeline":
         cmd_timeline(cfg, " ".join(argv[1:]))
+    elif cmd == "compact":
+        cmd_compact(cfg, " ".join(argv[1:]))
     else:
         print(__doc__)
 

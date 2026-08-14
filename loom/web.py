@@ -11,7 +11,7 @@ import threading
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from . import config, canon, state, transcript, narrate, consolidate, llm, threads, imagine, guard, character, sleep, worldturn, player, generate, setting, undo, reputation, salience, assistant, recall, extract, episodic
+from . import config, canon, state, transcript, narrate, consolidate, llm, threads, imagine, guard, character, sleep, worldturn, player, generate, setting, undo, reputation, salience, assistant, recall, extract, episodic, compact
 
 STATIC = Path(__file__).resolve().parent / "static"
 
@@ -23,7 +23,8 @@ STATIC = Path(__file__).resolve().parent / "static"
 # propose/preview POSTs (a model call, no durable write) are exempt so a long archivist call never
 # stalls play.
 _WRITE_LOCK = threading.Lock()
-_READONLY_POSTS = frozenset({"/api/assist", "/api/consolidate", "/api/imagine", "/api/generate"})
+_READONLY_POSTS = frozenset({"/api/assist", "/api/consolidate", "/api/imagine", "/api/generate",
+                             "/api/compact/propose"})
 
 
 def _graph(world: Path) -> dict:
@@ -110,6 +111,10 @@ def make_handler(cfg: dict):
                 query = (q.get("q") or [""])[0]
                 events = episodic.query(spath, query) if query else episodic.entries(spath)
                 return self._send(200, {"events": events})
+            if u.path == "/api/compact":
+                # Phase 7: canon nodes that have grown large — candidates to distill
+                return self._send(200, {"candidates": [
+                    {"name": n["name"], "size": len(n["body"])} for n in compact.oversized(world)]})
             if u.path == "/api/recall":
                 # episodic recall: search the story's OWN transcript for the turns matching a query
                 query = (q.get("q") or [""])[0]
@@ -318,6 +323,30 @@ def make_handler(cfg: dict):
                 except Exception as e:
                     return self._send(502, {"error": str(e)})
                 return self._send(200, {"written": written})
+            if u.path == "/api/compact/propose":
+                # distill a bloated node — propose-only (model call), verified fail-closed for review
+                node = canon.read_node(world, (body.get("name") or "").strip())
+                if not node:
+                    return self._send(404, {"error": "no such node"})
+                try:
+                    distilled = compact.propose(node, cfg)
+                except llm.LLMError as e:
+                    return self._send(502, {"error": str(e)})
+                ok, reason = compact.verify(node["body"], distilled)
+                return self._send(200, {"name": node["name"], "before": len(node["body"]),
+                                        "after": len(distilled), "ok": ok, "reason": reason, "body": distilled})
+            if u.path == "/api/compact/apply":
+                # bless a distillation into canon — re-verified fail-closed (never lose a link)
+                name = (body.get("name") or "").strip()
+                distilled = body.get("body") or ""
+                node = canon.read_node(world, name)
+                if not node:
+                    return self._send(404, {"error": "no such node"})
+                ok, reason = compact.verify(node["body"], distilled)
+                if not ok:
+                    return self._send(400, {"error": f"refused: {reason}"})
+                compact.apply(world, name, distilled)
+                return self._send(200, {"ok": True, "name": node["name"], "size": len(distilled)})
             if u.path == "/api/imagine":
                 try:
                     cands = imagine.propose(world, spath.parent / "threads.json", cfg)

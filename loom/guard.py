@@ -54,7 +54,17 @@ def orphan_nodes(nodes, thr):
     return out
 
 
-DETECTORS = [dangling_links, thread_unknown_entities, orphan_nodes]   # structural: (nodes, thr)
+def bloated_node(nodes, thr):
+    """A canon node that has accreted past the compaction threshold — a candidate for `loom compact`
+    (Phase 7), so a long campaign's central nodes don't slow every turn."""
+    from . import compact
+    big = [n for n in nodes if len(n.get("body", "") or "") > compact._DEFAULT_THRESHOLD]
+    return [Finding("low", "bloated-node",
+                    f"'{n['name']}' has grown large ({len(n['body'])} chars) — 'loom compact' distills it")
+            for n in sorted(big, key=lambda n: -len(n["body"]))[:5]]
+
+
+DETECTORS = [dangling_links, thread_unknown_entities, orphan_nodes, bloated_node]   # structural: (nodes, thr)
 
 
 # --- consistency detectors (storyteller-memory Phase 4): transcript-aware, so they catch the story
