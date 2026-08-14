@@ -66,8 +66,10 @@ def retrieve(query: str, world: Path, cfg: dict, k: int | None = None,
              tpath: Path | None = None, spath: Path | None = None) -> list[dict]:
     """Top-k canon nodes most relevant to `query`. When cfg['salience_decay'] is on AND the transcript
     + state paths are supplied, results are re-ranked by FORGETTING (recency × salience, see loom.decay)
-    so the live scene surfaces over stale canon — a modulation that never buries a genuine match. With
-    the flag off or the paths absent, behaviour is byte-identical to pure relevance."""
+    so the live scene surfaces over stale canon. The re-rank keeps two invariants: the strongest genuine
+    match still leads, and a genuine match never ranks below a non-match — so a weaker relevant node may
+    be reordered out of a tight top-k (by design), but the best hit and the noise floor are preserved.
+    With the flag off or the paths absent, behaviour is byte-identical to pure relevance."""
     k = k or cfg["retrieve_k"]
     docs = canon.load_all(world)
     if not docs:
@@ -94,7 +96,7 @@ def retrieve(query: str, world: Path, cfg: dict, k: int | None = None,
     decay_on = bool(cfg.get("salience_decay")) and tpath is not None and spath is not None
     prom = decay.prominence(world, tpath, spath, nodes=docs) if decay_on else None
     if decay_on:
-        ranked = decay.rerank(ranked, prom)
+        ranked = decay.rerank(ranked, prom, relevant)   # relevance-partitioned + strongest-match pinned
 
     out = []
     for name, score in ranked[:k]:

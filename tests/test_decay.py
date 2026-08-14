@@ -33,6 +33,25 @@ class RecencyTest(unittest.TestCase):
         transcript.append(tp, "narrator", "the winterfell banners flew")          # contains 'win' but not 'Win'
         self.assertEqual(decay._recency(tp, ["Win"])["Win"], decay._UNSEEN)       # 'Win' isn't a whole word here
 
+    def test_player_mention_outheats_narrator_prose(self):
+        # red-team #7 (anti-collapse): recency anchors to the PLAYER; narrator prose is capped, so the
+        # ranking can't self-amplify off the model's own output
+        camp = _camp()
+        tp = camp / "transcript.jsonl"
+        for _ in range(3):
+            transcript.append(tp, "narrator", "Ghost drifts through the hall, Ghost watching")
+        transcript.append(tp, "player", "I thank Ally")
+        rec = decay._recency(tp, ["Ghost", "Ally"])
+        self.assertGreater(rec["Ally"], rec["Ghost"])                # the human's word outheats model prose
+        self.assertLessEqual(rec["Ghost"], decay._NARRATOR_DISCOUNT)  # narrator-only can't reach full heat
+
+    def test_matcher_handles_punctuation_edge_names(self):
+        # red-team #5: a name whose edge is punctuation ('c++') still matches (no dead substring fallback)
+        camp = _camp()
+        tp = camp / "transcript.jsonl"
+        transcript.append(tp, "player", "I compile the c++ program")
+        self.assertGreater(decay._recency(tp, ["c++"])["c++"], decay._UNSEEN)
+
 
 class BoostRerankTest(unittest.TestCase):
     def test_boost_floors_and_caps(self):
@@ -48,9 +67,15 @@ class BoostRerankTest(unittest.TestCase):
 
     def test_rerank_never_buries_a_strong_match(self):
         prom = {"Cold": 0.0, "Hot": 1.0}
-        # a much stronger lexical hit on a COLD node still outranks a weak hot one (floor protects recall)
+        # the STRONGEST raw match leads regardless of aliveness (pinned) — never buried
         out = decay.rerank([("Cold", 10.0), ("Hot", 4.0)], prom)
-        self.assertEqual(out[0][0], "Cold")                     # 10*0.5=5.0 > 4*1.0=4.0
+        self.assertEqual(out[0][0], "Cold")
+
+    def test_rerank_keeps_relevant_above_irrelevant(self):
+        # red-team #4: a hot IRRELEVANT node (score 0, RRF-fused) must never outrank a genuine match
+        prom = {"HotNoise": 1.0, "RealMatch": 0.0}
+        out = decay.rerank([("HotNoise", 0.03), ("RealMatch", 0.02)], prom, relevant={"RealMatch"})
+        self.assertEqual(out[0][0], "RealMatch")                # relevance partitions above aliveness
 
 
 class RetrieveIntegrationTest(unittest.TestCase):
@@ -88,6 +113,22 @@ class RetrieveIntegrationTest(unittest.TestCase):
         out = retrieve.retrieve("zzz nothing matches", camp / "world", cfg, tpath=tp, spath=sp)
         self.assertTrue(all(d["score"] == 0.0 for d in out))    # nothing relevant → fallback
         self.assertEqual(out[0]["name"], "Beacon")              # but grounded on the LIVE node, not alphabetical
+
+    def test_strongest_match_survives_a_crowded_topk(self):
+        # red-team #1/#3: the strongest genuine match is COLD, k HOT near-ties crowd the query — it must
+        # NOT be cut past the top-k (the burial the pairwise floor missed)
+        camp = _camp()
+        w = camp / "world"
+        canon.write_node(w, "TrueBeacon", "beacon beacon beacon watchtower", {"kind": "place"})
+        for i in range(10):
+            canon.write_node(w, f"Ridge{i}", "beacon watchtower", {"kind": "place"})
+        tp, sp = camp / "transcript.jsonl", camp / "state.json"
+        for i in range(10):
+            transcript.append(tp, "player", f"I climb Ridge{i} again")     # the Ridges are HOT, TrueBeacon COLD
+        cfg = dict(config.DEFAULTS); cfg["salience_decay"] = True
+        out = [d["name"] for d in retrieve.retrieve("beacon watchtower", w, cfg, k=8, tpath=tp, spath=sp)]
+        self.assertIn("TrueBeacon", out)                        # not buried past the cut…
+        self.assertEqual(out[0], "TrueBeacon")                  # …in fact the strongest match leads
 
     def test_salience_lifts_a_thread_bound_node(self):
         camp = self._world()
