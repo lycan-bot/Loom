@@ -11,7 +11,7 @@ import hashlib
 import json
 import re
 from pathlib import Path
-from . import llm, canon, state, threads, reputation, transcript, inbox, episodic
+from . import llm, canon, state, threads, reputation, transcript, inbox, episodic, provenance
 
 _JSON_RE = re.compile(r"\{[\s\S]*\}")
 
@@ -358,9 +358,15 @@ def apply(proposals: dict, world: Path, state_path: Path, approve,
             canon.write_node(world, name, new_body, fm)
             written["nodes"].append(name)
     st = state.load(state_path)
+    ts, te = (deed_window if deed_window else (None, None))   # the turn-window, for provenance + events
     changed = False
     for key, val in p["state"].items():
         if approve("state", key, val):
+            old = st.get(key)
+            if old is not None and str(old) != str(val):     # a fact CHANGED — record old→new, never clobber blind
+                provenance.log(state_path, [{"kind": "state", "name": key, "field": key, "old": old, "new": val,
+                                             "entry_start": ts, "entry_end": te, "source": "consolidate",
+                                             "reversal": provenance.is_reversal("state", old, val)}])
             st[key] = val
             written["state"].append(key)
             changed = True
@@ -441,6 +447,12 @@ def apply(proposals: dict, world: Path, state_path: Path, approve,
         # disposition (a feeling) and location (a MOVE) are DISTINCT changes — gate them separately
         # so a relocation is disclosed and independently refusable, not smuggled in under a feeling
         if cu["disposition"] and approve("disposition", name, cu["disposition"]):
+            old = str(fm.get("disposition", "")).strip()
+            if old and old != cu["disposition"]:         # a feeling SHIFTED — hold old→new, never clobber blind
+                provenance.log(state_path, [{"kind": "character", "name": name, "field": "disposition",
+                                             "old": old, "new": cu["disposition"], "entry_start": ts, "entry_end": te,
+                                             "source": "consolidate",
+                                             "reversal": provenance.is_reversal("disposition", old, cu["disposition"])}])
             fm["disposition"] = cu["disposition"]
             written["dispositions"].append(name)
             touched = True
@@ -448,6 +460,11 @@ def apply(proposals: dict, world: Path, state_path: Path, approve,
         # (that corruption is what put Wren 'elsewhere with Fáelán' and broke co-location)
         place = _resolve_place(world, cu["location"]) if cu["location"] else None
         if place and approve("location", name, place):
+            old = str(fm.get("location", "")).strip()
+            if old and old != place:                     # a MOVE from a known place — record the relocation
+                provenance.log(state_path, [{"kind": "character", "name": name, "field": "location",
+                                             "old": old, "new": place, "entry_start": ts, "entry_end": te,
+                                             "source": "consolidate", "reversal": provenance.is_reversal("location", old, place)}])
             fm["location"] = place                       # NPCs relocate over play → world-round groups shift
             written["locations"].append(name)
             touched = True

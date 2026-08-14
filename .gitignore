@@ -7,3 +7,4 @@ campaigns/*/transcript.jsonl
 campaigns/*/consolidate_inbox.jsonl
 campaigns/*/undo.jsonl
 campaigns/*/episodic.jsonl
+campaigns/*/facts_log.jsonl

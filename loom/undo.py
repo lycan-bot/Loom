@@ -47,12 +47,20 @@ def snapshot(tpath: Path, spath: Path) -> None:
     tpath, spath = Path(tpath), Path(spath)
     thpath = spath.parent / "threads.json"
     epath = spath.parent / "episodic.jsonl"
+    fpath = spath.parent / "facts_log.jsonl"
+
+    def _nlines(p):
+        return len([ln for ln in p.read_text(encoding="utf-8").splitlines() if ln.strip()]) if p.exists() else 0
+
     snap = {
         "n_transcript": len(transcript.read_all(tpath)),
         # the episodic timeline is append-only too — remember its length so undo can truncate any events
         # a fold appended on the undone turns (else the timeline asserts a beat that no longer happened).
         # Captured AFTER _prepare's drain, so a fold that legitimately landed this turn is preserved.
-        "n_episodic": len([ln for ln in epath.read_text(encoding="utf-8").splitlines() if ln.strip()]) if epath.exists() else 0,
+        "n_episodic": _nlines(epath),
+        # the provenance ledger is append-only for the same reason — a fold that recorded an old→new
+        # change on the undone turns must roll back too, or `loom why` would cite a change that unhappened.
+        "n_facts": _nlines(fpath),
         "threads": thpath.read_text(encoding="utf-8") if thpath.exists() else None,
         "state": spath.read_text(encoding="utf-8") if spath.exists() else None,
     }
@@ -101,6 +109,14 @@ def undo(tpath: Path, spath: Path) -> bool:
     if ne is not None and epath.exists():
         elines = [ln for ln in epath.read_text(encoding="utf-8").splitlines() if ln.strip()][:int(ne)]
         _atomic_write(epath, ("\n".join(elines) + "\n") if elines else "")
+
+    # truncate the append-only provenance ledger the same way — a fold's recorded old→new changes on
+    # the undone turns must vanish with them (else the audit trail asserts a change that no longer stands)
+    fpath = spath.parent / "facts_log.jsonl"
+    nf = snap.get("n_facts")
+    if nf is not None and fpath.exists():
+        flines = [ln for ln in fpath.read_text(encoding="utf-8").splitlines() if ln.strip()][:int(nf)]
+        _atomic_write(fpath, ("\n".join(flines) + "\n") if flines else "")
 
     # restore threads.json + state.json to their pre-turn bytes (or remove if they didn't exist)
     thpath = spath.parent / "threads.json"
