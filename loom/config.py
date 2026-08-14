@@ -34,6 +34,8 @@ DEFAULTS = {
 
     # --- retrieval / prompt shaping ---
     "retrieve_k":       8,    # canon nodes pulled in to ground a turn (more of the world in frame)
+    "salience_decay":   False,  # FORGETTING: re-rank retrieval by recency × salience so the live scene
+                                # surfaces over stale canon (loom.decay). Off = pure relevance, byte-identical.
     "recent_turns":     16,   # transcript lines kept for immediate continuity (~8 turns of memory;
                               # smaller details scroll out below this — consolidate to make them permanent)
     "tension_baseline": 0.15, # a campaign's resting dramatic tension (cozy 0.05 … grim 0.35)

@@ -55,6 +55,34 @@ def _degree(nodes) -> dict:
     return deg
 
 
+def scores(world: Path, spath: Path) -> dict:
+    """Per-node PERSISTENT salience — structural importance independent of recent chatter, for the
+    decay re-ranker: thread membership + canon-graph degree + carrying an agenda + reputation
+    magnitude. Recent mentions are DELIBERATELY excluded (decay's recency term covers those). Pure
+    read; deterministic. {name: score}."""
+    nodes = canon.load_all(world)
+    ths = [t for t in _threads.load(Path(spath).parent / "threads.json")
+           if getattr(t, "status", "") != "resolved"]
+    st = state.load(spath)
+    rep = st.get("_rep") if isinstance(st.get("_rep"), dict) else {}
+    deg = _degree(nodes)
+
+    def standing(name):
+        r = rep.get(name)
+        try:
+            return int(r.get("standing", 0) or 0) if isinstance(r, dict) else 0
+        except (TypeError, ValueError):
+            return 0
+
+    out = {}
+    for n in nodes:
+        name, fm = n["name"], n["frontmatter"]
+        th = sum(1 for t in ths if name in (getattr(t, "entities", []) or []))
+        wants = 1 if str(fm.get("wants", "")).strip() else 0
+        out[name] = 3 * th + deg.get(name, 0) + 2 * wants + 2 * abs(standing(name))
+    return out
+
+
 def classify(world: Path, tpath: Path, spath: Path) -> list:
     """Return the ordered tiers, each {key, label, cards:[{name, kind, hint, overridden, score,
     standing}]}. Empty tiers are included (the UI hides them). Pure read — writes nothing."""

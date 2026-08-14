@@ -62,7 +62,7 @@ def _prepare(player_input: str, cfg: dict, tpath: Path, world: Path, spath: Path
     undo.snapshot(tpath, spath)                       # capture pre-turn state so the turn can be taken back
     transcript.append(tpath, "player", player_input)
 
-    nodes = retrieve.retrieve(player_input, world, cfg)
+    nodes = retrieve.retrieve(player_input, world, cfg, tpath=tpath, spath=spath)   # decay-aware when armed
     st = state.load(spath)
     facts = {k: v for k, v in st.items() if not k.startswith("_")}    # _-keys are internal (tension)
     tension = st.get("_tension", cfg.get("tension_baseline", 0.15))
@@ -269,7 +269,7 @@ def resume(cfg: dict, tpath: Path, world: Path, spath: Path) -> str:
     last_input = next((rows[j].get("text", "") for j in range(idx - 1, -1, -1)
                        if rows[j].get("role") == "player"), "")
 
-    nodes = retrieve.retrieve(last_input or last_text, world, cfg)
+    nodes = retrieve.retrieve(last_input or last_text, world, cfg, tpath=tpath, spath=spath)
     st = state.load(spath)
     facts = {k: v for k, v in st.items() if not k.startswith("_")}
     tension = st.get("_tension", cfg.get("tension_baseline", 0.15))

@@ -73,7 +73,10 @@ def advance(cfg, world, threads_path):
     # everything (the same 1500-char dump that let the world round free-associate false history)
     move_names = [name for name, _m in moves]
     query = " ".join([t.question for t in due] + move_names + [m.because for _n, m in moves])
-    canon_text = retrieve.grounded_context(world, cfg, query, anchors=move_names) or "(no canon yet)"
+    _sp = Path(threads_path).parent / "state.json"          # decay reads salience (state) + recency (transcript)
+    _tp = Path(threads_path).parent / "transcript.jsonl"
+    canon_text = retrieve.grounded_context(world, cfg, query, anchors=move_names,
+                                           tpath=_tp, spath=_sp) or "(no canon yet)"
     ccfg = dict(cfg)
     if cfg.get("consolidate_llm_url"):
         ccfg["llm_url"] = cfg["consolidate_llm_url"]

@@ -7,7 +7,7 @@ Cosine + reciprocal-rank-fusion are lifted from the Primarch search module.
 from __future__ import annotations
 import math, re
 from pathlib import Path
-from . import canon, llm
+from . import canon, llm, decay
 
 _TOK_RE = re.compile(r"\w+", re.UNICODE)
 _COS_FLOOR = 0.5          # cosine below this is fusion noise, not a genuine semantic match
@@ -62,8 +62,12 @@ def _rrf(lists: list[list[tuple[str, float]]], k: int = 60) -> list[tuple[str, f
     return sorted(scores.items(), key=lambda x: x[1], reverse=True)
 
 
-def retrieve(query: str, world: Path, cfg: dict, k: int | None = None) -> list[dict]:
-    """Top-k canon nodes most relevant to `query`."""
+def retrieve(query: str, world: Path, cfg: dict, k: int | None = None,
+             tpath: Path | None = None, spath: Path | None = None) -> list[dict]:
+    """Top-k canon nodes most relevant to `query`. When cfg['salience_decay'] is on AND the transcript
+    + state paths are supplied, results are re-ranked by FORGETTING (recency × salience, see loom.decay)
+    so the live scene surfaces over stale canon — a modulation that never buries a genuine match. With
+    the flag off or the paths absent, behaviour is byte-identical to pure relevance."""
     k = k or cfg["retrieve_k"]
     docs = canon.load_all(world)
     if not docs:
@@ -85,17 +89,30 @@ def retrieve(query: str, world: Path, cfg: dict, k: int | None = None) -> list[d
             ranked = _rrf([lexical, vec_ranked])
             relevant |= {name for name, c in cos if c >= _COS_FLOOR}
 
+    # FORGETTING: re-rank by aliveness (recency × salience), preserving the relevance flag. Gated +
+    # needs the transcript/state; off or absent → the pure-relevance order above stands unchanged.
+    decay_on = bool(cfg.get("salience_decay")) and tpath is not None and spath is not None
+    prom = decay.prominence(world, tpath, spath, nodes=docs) if decay_on else None
+    if decay_on:
+        ranked = decay.rerank(ranked, prom)
+
     out = []
     for name, score in ranked[:k]:
         d = by_name.get(name)
         if d:
             out.append({**d, "score": score if name in relevant else 0.0})
-    # never leave a turn ungrounded: if lexical found nothing, fall back to all nodes
-    return out or [{**d, "score": 0.0} for d in docs[:k]]
+    if out:
+        return out
+    # never leave a turn ungrounded: fall back to canon — most-ALIVE first when decay is on, else the
+    # legacy alphabetical slice.
+    if decay_on:
+        order = decay.by_prominence([d["name"] for d in docs], prom)[:k]
+        return [{**by_name[nm], "score": 0.0} for nm in order]
+    return [{**d, "score": 0.0} for d in docs[:k]]
 
 
 def grounded_context(world: Path, cfg: dict, query: str, anchors=(), k: int | None = None,
-                     body_chars: int = 200) -> str:
+                     body_chars: int = 200, tpath: Path | None = None, spath: Path | None = None) -> str:
     """A canon context block GROUNDED in retrieval for `query`, not an arbitrary alphabetical slice.
     The world-round / sleep confabulation ('Fáelán's testimony') came from the model free-associating
     over a fixed 1500-char dump of ALL canon; this instead grounds the beat in what's actually
@@ -111,7 +128,7 @@ def grounded_context(world: Path, cfg: dict, query: str, anchors=(), k: int | No
         if d and name not in seen:
             seen.add(name)
             picked.append(d)
-    for d in retrieve(query, world, cfg, k=k):            # + genuine matches for what they want / where
+    for d in retrieve(query, world, cfg, k=k, tpath=tpath, spath=spath):   # + genuine matches, decay-ordered
         if d["name"] not in seen and d.get("score", 0.0) > 0:
             seen.add(d["name"])
             picked.append(d)

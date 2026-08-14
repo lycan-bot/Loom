@@ -126,7 +126,7 @@ def groups(majors_list) -> list:
     return sorted(list(by_loc.values()) + solo, key=lambda g: (-len(g), g[0][0]["name"]))
 
 
-def run(cfg, world, exclude=()) -> dict:
+def run(cfg, world, exclude=(), tpath=None, spath=None) -> dict:
     """Play one world round: each group of major NPCs takes a turn. Propose-only — returns the
     turns, writes nothing. `exclude` (names) are in the live scene and skipped. `pending` is True
     when there were actors, even if the beat text failed
@@ -141,7 +141,8 @@ def run(cfg, world, exclude=()) -> dict:
     actor_names = [node["name"] for g in gs for node, m, _loc in g]
     query = " ".join(actor_names + [m.because for g in gs for node, m, _loc in g]
                      + [g[0][2] for g in gs if g[0][2]])
-    canon_text = retrieve.grounded_context(world, cfg, query, anchors=actor_names) or "(no canon yet)"
+    canon_text = retrieve.grounded_context(world, cfg, query, anchors=actor_names,
+                                           tpath=tpath, spath=spath) or "(no canon yet)"
     # constrain `where` to the round's actual locations, so the co-location routing below can match it
     where_vals = sorted({g[0][2] for g in gs if g[0][2]})
     where_prop = {"type": "string", "enum": where_vals + ["parts unknown"]} if where_vals else {"type": "string"}
@@ -198,7 +199,7 @@ def maybe_round(cfg, world, state_path) -> list:
     # people ELSEWHERE (this is what finally keeps the in-scene companion out of the 'meanwhile' pulse)
     tpath = Path(state_path).parent / config.transcript_path(cfg).name   # sibling of THIS state file, not the global one
     in_scene = scene_characters(cfg, world, tpath)
-    turns = run(cfg, world, exclude=in_scene)["turns"]
+    turns = run(cfg, world, exclude=in_scene, tpath=tpath, spath=state_path)["turns"]
     # every world-round beat is a real thing that happened off-screen → the timeline records it (the
     # second clock), anchored just after the latest played entry so 'when did the world move?' resolves.
     # Recorded here (after this turn's undo-snapshot) so an undo of the turn rolls these beats back too.
