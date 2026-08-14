@@ -128,6 +128,27 @@ class ReconcileAtDiodeTest(unittest.TestCase):
         h = provenance.history(sp, field="beacon")
         self.assertEqual((h[0]["old"], h[0]["new"]), ("unlit", "lit"))
 
+    def test_node_merge_field_change_is_recorded(self):
+        # the OTHER write path to the same frontmatter: a re-proposed node that changes a set card field
+        # (wants/role/voice…) must reconcile, not silently clobber — the wider sibling of the clobber hole
+        camp = _camp()
+        canon.write_node(camp / "world", "Mara", "A fisher.", {"kind": "character", "wants": "to leave"})
+        consolidate.apply({"nodes": [{"name": "Mara", "kind": "character", "body": "A fisher who stayed.",
+                                      "fields": {"wants": "to stay"}}]},
+                          camp / "world", camp / "state.json", approve=lambda *a: True)
+        self.assertEqual(canon.read_node(camp / "world", "Mara")["frontmatter"]["wants"], "to stay")
+        h = provenance.history(camp / "state.json", name="Mara", field="wants")
+        self.assertEqual((h[0]["old"], h[0]["new"]), ("to leave", "to stay"))
+
+    def test_node_merge_new_field_logs_nothing(self):
+        # adding a field the node didn't have is not a contradiction — nothing to reconcile
+        camp = _camp()
+        canon.write_node(camp / "world", "Mara", "A fisher.", {"kind": "character"})
+        consolidate.apply({"nodes": [{"name": "Mara", "kind": "character", "body": "A fisher.",
+                                      "fields": {"role": "guide"}}]},
+                          camp / "world", camp / "state.json", approve=lambda *a: True)
+        self.assertEqual(provenance.entries(camp / "state.json"), [])
+
 
 class UndoRollsBackLedgerTest(unittest.TestCase):
     def test_undo_truncates_facts_log(self):

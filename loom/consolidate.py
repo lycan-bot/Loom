@@ -350,13 +350,23 @@ def apply(proposals: dict, world: Path, state_path: Path, approve,
         if body and body not in existing["body"]:                 # append novel content
             new_body = existing["body"].rstrip() + "\n\n" + body
             touched = True
+        changes = []
         for k, v in fields.items():                               # merge card fields
             if fm.get(k) != v:
+                old = str(fm.get(k, "")).strip()
+                if old and str(v).strip():                        # a SET field changed → reconcile, don't clobber blind
+                    changes.append({"kind": "character", "name": name, "field": k, "old": old, "new": v,
+                                    "source": "consolidate", "reversal": provenance.is_reversal(k, old, v)})
                 fm[k] = v
                 touched = True
         if touched:
             canon.write_node(world, name, new_body, fm)
             written["nodes"].append(name)
+        if changes:                                               # record after the write commits
+            ts, te = (deed_window if deed_window else (None, None))
+            for c in changes:
+                c["entry_start"], c["entry_end"] = ts, te
+            provenance.log(state_path, changes)
     st = state.load(state_path)
     ts, te = (deed_window if deed_window else (None, None))   # the turn-window, for provenance + events
     changed = False
