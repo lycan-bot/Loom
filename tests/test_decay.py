@@ -52,6 +52,14 @@ class RecencyTest(unittest.TestCase):
         transcript.append(tp, "player", "I compile the c++ program")
         self.assertGreater(decay._recency(tp, ["c++"])["c++"], decay._UNSEEN)
 
+    def test_matcher_no_false_substring_on_punctuation_edge(self):
+        # re-verify residual: a punctuation-edged name must NOT match glued inside a bigger token
+        camp = _camp()
+        tp = camp / "transcript.jsonl"
+        transcript.append(tp, "player", "I run c++plus and asp.net today")
+        self.assertEqual(decay._recency(tp, ["c++"])["c++"], decay._UNSEEN)     # not inside 'c++plus'
+        self.assertEqual(decay._recency(tp, [".net"])[".net"], decay._UNSEEN)   # not inside 'asp.net'
+
 
 class BoostRerankTest(unittest.TestCase):
     def test_boost_floors_and_caps(self):
@@ -76,6 +84,15 @@ class BoostRerankTest(unittest.TestCase):
         prom = {"HotNoise": 1.0, "RealMatch": 0.0}
         out = decay.rerank([("HotNoise", 0.03), ("RealMatch", 0.02)], prom, relevant={"RealMatch"})
         self.assertEqual(out[0][0], "RealMatch")                # relevance partitions above aliveness
+
+    def test_tied_strongest_matches_both_survive(self):
+        # re-verify residual: TWO co-strongest matches (exact raw tie) must BOTH lead, not just one — else
+        # a genuine co-best hit is evicted past the top-k by hotter but weaker nodes
+        prom = {"Aaa": 1.0, "Bbb": 0.0, "Hot0": 1.0, "Hot1": 1.0}
+        out = [n for n, _ in decay.rerank(
+            [("Aaa", 0.35), ("Bbb", 0.35), ("Hot0", 0.30), ("Hot1", 0.30)],
+            prom, relevant={"Aaa", "Bbb", "Hot0", "Hot1"})]
+        self.assertEqual(out[:2], ["Aaa", "Bbb"])               # both co-strongest pinned ahead of the tail
 
 
 class RetrieveIntegrationTest(unittest.TestCase):

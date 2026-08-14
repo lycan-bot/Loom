@@ -28,20 +28,21 @@ _HALF_LIFE = 12            # transcript entries until a mention's recency weight
 _UNSEEN = 0.15             # base recency for a node never named in play (dormant canon, not dead)
 _W_RECENCY = 0.6           # forgetting is primarily recency; salience is what RESISTS it
 _W_SALIENCE = 0.4
-_WINDOW = _HALF_LIFE * 12  # a mention older than this weighs < _UNSEEN anyway → bound the scan (perf: the
-                           # cost is O(names × window), NOT O(names × whole-transcript) for the campaign's life
+_WINDOW = _HALF_LIFE * 12  # a mention older than this weighs < _UNSEEN anyway → bound the regex SCAN to
+                           # O(names × window). (The one transcript read is still O(file), same as the rest
+                           # of the turn; a tail-read would bound that too — a follow-up if a log ever gets huge.)
 _NARRATOR_DISCOUNT = 0.5   # narrator prose lifts recency at most this far — only a PLAYER mention reaches 1.0
 
 
 def _matcher(name):
-    """A compiled matcher for a name, word-bounded only where the name's own edge is a word char (so
-    'c++' / 'The Salt & Anchor' still match; re.escape never raises, so there is no substring fallback)."""
+    """A compiled matcher for a name as a standalone token — bounded by 'not glued to an alphanumeric'
+    on BOTH sides via lookarounds, so 'c++' matches 'the c++ compiler' but NOT 'c++plus', '.net' isn't
+    found inside 'asp.net', and 'Win' isn't found inside 'winterfell'. Works for punctuation-edged and
+    multi-word names alike; re.escape never raises."""
     low = (name or "").lower().strip()
     if not low:
         return None
-    lb = r"\b" if (low[0].isalnum() or low[0] == "_") else ""
-    rb = r"\b" if (low[-1].isalnum() or low[-1] == "_") else ""
-    return re.compile(lb + re.escape(low) + rb)
+    return re.compile(r"(?<![a-z0-9])" + re.escape(low) + r"(?![a-z0-9])")
 
 
 def _recency(tpath, names) -> dict:
@@ -76,7 +77,15 @@ def _recency(tpath, names) -> dict:
 
 def prominence(world, tpath, spath, nodes=None) -> dict:
     """name -> aliveness in [0, 1] = w_r·recency + w_s·salience_norm. Deterministic, per-call.
-    `nodes` may be passed to avoid re-loading canon the caller already has."""
+    `nodes` may be passed to avoid re-loading canon the caller already has.
+
+    NOTE on the salience term: it reads BLESSED story structure (threads, graph degree, reputation), so
+    narrator prose can lift a node indirectly — the archivist may fold a thread/reputation for a node the
+    player never named. That is one gated level removed from raw model output (it passes the consolidation
+    diode), and it is bounded: salience contributes at most _W_SALIENCE and is normalized, so a fully-
+    salient cold node still ranks below a player-fresh one and the relevance-partition keeps it off signal.
+    The RAW-prose loop (the one the floor forbids) is closed at recency; anchoring salience to player
+    mentions too is a deferred follow-up, not a hole that runs away."""
     if nodes is None:
         nodes = canon.load_all(world)
     names = [d["name"] for d in nodes]
@@ -110,12 +119,13 @@ def rerank(ranked, prom, relevant=None):
     def eff(ns):
         return ns[1] * boost(prom.get(ns[0], 0.0))
 
-    rel = sorted((ns for ns in ranked if ns[0] in relevant), key=eff, reverse=True)
     non = sorted((ns for ns in ranked if ns[0] not in relevant), key=eff, reverse=True)
+    rel = [ns for ns in ranked if ns[0] in relevant]
     if rel:
-        top_raw = max(ns[1] for ns in rel)               # the strongest genuine match leads, whatever its
-        lead = max((ns for ns in rel if ns[1] == top_raw), key=eff)   # aliveness — but a genuine TIE for the
-        rel = [lead] + [ns for ns in rel if ns[0] != lead[0]]         # top breaks toward the live node
+        top_raw = max(ns[1] for ns in rel)               # ALL co-strongest genuine matches lead (hottest of
+        leads = sorted((ns for ns in rel if ns[1] == top_raw), key=eff, reverse=True)   # them first) — so a
+        tail = sorted((ns for ns in rel if ns[1] != top_raw), key=eff, reverse=True)    # tie for the best hit
+        rel = leads + tail                               # never buries a co-best match past the top-k cut
     return rel + non
 
 
