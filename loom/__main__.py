@@ -23,7 +23,7 @@ Usage:
 """
 from __future__ import annotations
 import sys
-from . import config, narrate, consolidate, seal, transcript, canon, state, llm, threads, npc, imagine, guard, sleep, worldturn, generate, undo, reputation, recall, extract, episodic, compact
+from . import config, narrate, consolidate, seal, transcript, canon, state, llm, threads, npc, imagine, guard, sleep, worldturn, generate, undo, reputation, recall, extract, episodic, compact, provenance
 
 
 def _paths(cfg):
@@ -419,6 +419,24 @@ def cmd_compact(cfg, name=""):
         print("compacted.")
 
 
+def cmd_why(cfg, name):
+    """The provenance trail: how a fact reached its current value — every recorded change old→new, when,
+    and whether it was a contradiction (a reversal). 'how do I know this?' answered."""
+    _, _world, spath = _paths(cfg)
+    rows = provenance.history(spath, name=name) if name else provenance.entries(spath)[::-1]
+    if not rows:
+        print(f"no recorded changes for {name!r}." if name
+              else "the ledger is empty — nothing has been reconciled yet.")
+        return
+    print(f"how {name!r} came to be" if name else "the change ledger (newest first)")
+    for r in rows:
+        ts = r.get("entry_start")
+        when = f"entries {ts}-{r.get('entry_end')}" if ts is not None else "?"
+        flag = "  ⚠ reversal" if r.get("reversal") else ""
+        who = "" if name else f"{r.get('name')} "
+        print(f"  [{when}] {who}{r.get('field')}: {r.get('old')!r} → {r.get('new')!r}{flag}")
+
+
 def main(argv=None):
     argv = argv if argv is not None else sys.argv[1:]
     cfg = config.load()
@@ -471,6 +489,8 @@ def main(argv=None):
         cmd_timeline(cfg, " ".join(argv[1:]))
     elif cmd == "compact":
         cmd_compact(cfg, " ".join(argv[1:]))
+    elif cmd == "why":
+        cmd_why(cfg, " ".join(argv[1:]))
     else:
         print(__doc__)
 

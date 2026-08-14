@@ -3,7 +3,7 @@ own canon — a dead character who acts — and surfaces Phase 3's confabulation
 import tempfile
 import unittest
 from pathlib import Path
-from loom import guard, canon, transcript
+from loom import guard, canon, transcript, provenance
 
 
 def _camp():
@@ -72,6 +72,26 @@ class ConsistencyTest(unittest.TestCase):
         transcript.append(t, "narrator", "Once more Duke Varro plots his slow ascent.")
         fs = self._check(camp, t)
         self.assertTrue(any(f.kind == "confabulated-entity" and "Varro" in f.message for f in fs))
+
+    def test_disposition_oscillation_flagged(self):
+        # a flip-flop (warm→hostile→warm) is the archivist contradicting itself — flag it
+        camp = _camp()
+        sp = camp / "state.json"
+        provenance.log(sp, [{"name": "Mara", "field": "disposition", "old": "warm", "new": "hostile", "reversal": True}])
+        provenance.log(sp, [{"name": "Mara", "field": "disposition", "old": "hostile", "new": "warm", "reversal": True}])
+        t = camp / "t.jsonl"
+        transcript.append(t, "player", "x")
+        fs = self._check(camp, t)
+        self.assertTrue(any(f.kind == "disposition-reversal" and "Mara" in f.message for f in fs))
+
+    def test_single_reversal_not_flagged(self):
+        # a lone reversal is a legitimate arc (a betrayal) — it must stay quiet (low-noise guarantee)
+        camp = _camp()
+        sp = camp / "state.json"
+        provenance.log(sp, [{"name": "Mara", "field": "disposition", "old": "warm", "new": "hostile", "reversal": True}])
+        t = camp / "t.jsonl"
+        transcript.append(t, "player", "x")
+        self.assertFalse(any(f.kind == "disposition-reversal" for f in self._check(camp, t)))
 
     def test_structural_detectors_run_without_a_transcript(self):
         # backward compat: check() with no tpath still runs the structural detectors and nothing crashes

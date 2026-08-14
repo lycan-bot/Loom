@@ -123,7 +123,25 @@ def confabulated_entities(nodes, thr, ctx):
             for e in extract.emergent(ctx["tpath"], ctx["world"], min_turns=2)]
 
 
-TX_DETECTORS = [confabulated_entities, dead_but_active]               # consistency: (nodes, thr, ctx)
+def disposition_reversal(nodes, thr, ctx):
+    """A character whose recorded feeling toward the player has FLIP-FLOPPED — reversed direction two
+    or more times in the provenance ledger (warm→hostile→warm…). A single reversal is a legitimate arc
+    (a betrayal, a reconciliation), so it stays quiet; OSCILLATION is the archivist contradicting itself,
+    the data-integrity smell the ledger exists to catch. `loom why <name>` shows the full old→new trail."""
+    spath = ctx.get("spath")
+    if not spath:
+        return []
+    from collections import Counter
+    from . import provenance
+    counts = Counter(r["name"] for r in provenance.reversals(spath)
+                     if r.get("field") == "disposition" and r.get("name"))
+    return [Finding("med", "disposition-reversal",
+                    f"'{name}' feeling toward the player has flip-flopped {c}× in the record — the archivist "
+                    f"may be contradicting itself; 'loom why {name}' shows the trail")
+            for name, c in sorted(counts.items()) if c >= 2]
+
+
+TX_DETECTORS = [confabulated_entities, dead_but_active, disposition_reversal]   # consistency: (nodes, thr, ctx)
 
 
 def check(world, threads_path, tpath=None, spath=None):
