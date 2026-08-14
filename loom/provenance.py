@@ -16,11 +16,20 @@ import json
 import re
 from pathlib import Path
 
-# a disposition's affective valence, so a warm→hostile flip is caught as a reversal but warm→warmer isn't
-_WARM = {"warm", "warmer", "friendly", "allied", "fond", "affectionate", "trusting", "intrigued",
-         "protective", "tender", "loyal", "devoted", "curious", "kind", "gentle", "smitten"}
-_COLD = {"hostile", "antagonistic", "wary", "warier", "cold", "colder", "suspicious", "afraid",
-         "angry", "resentful", "distrustful", "bitter", "guarded", "fearful", "contemptuous", "betrayed"}
+# a disposition's affective valence, so a warm→hostile flip is caught as a reversal but warm→warmer isn't.
+# Matched by WHOLE WORD (not substring — 'cold' must not fire inside 'coldly'), scoring BOTH poles so a
+# mixed phrase goes by majority, with negation ('no longer trusting') and dis-/un- prefixes inverting.
+_WARM = {"warm", "warmer", "warmth", "friendly", "friend", "allied", "ally", "fond", "affectionate",
+         "trusting", "trust", "trusts", "intrigued", "protective", "tender", "loyal", "devoted",
+         "curious", "kind", "gentle", "smitten", "welcoming", "welcome", "close", "grateful", "admiring"}
+_COLD = {"hostile", "hostility", "antagonistic", "wary", "warier", "cold", "colder", "coldly",
+         "suspicious", "afraid", "angry", "anger", "resentful", "resents", "distrustful", "distrust",
+         "bitter", "guarded", "fearful", "contemptuous", "betrayed", "betray", "betrays",
+         # a lethal/threat intent is a hard flip against any prior warmth, even worded without a mood word
+         "dead", "kill", "kills", "killed", "murder", "murderous", "harm", "destroy", "slay", "poison",
+         "hate", "hates", "loathe", "enemy", "vengeful", "vengeance", "menacing", "threatening"}
+_NEGATORS = {"not", "never", "no", "nor", "none", "isnt", "arent", "wasnt", "werent",
+             "cant", "cannot", "dont", "doesnt", "didnt", "wont", "aint"}
 
 
 def _path(spath) -> Path:
@@ -31,13 +40,32 @@ def _norm(s) -> str:
     return re.sub(r"[^a-z0-9 ]+", "", str(s).lower()).strip()
 
 
-def _valence(disp: str) -> int:
-    d = (disp or "").lower()
-    if any(w in d for w in _WARM):
+def _tok_valence(t: str) -> int:
+    """One token's valence, with dis-/un- treated as a negated root ('disloyal'/'unfriendly' → cold)."""
+    if t in _WARM:
         return 1
-    if any(w in d for w in _COLD):
+    if t in _COLD:
         return -1
+    for p in ("dis", "un"):
+        if t.startswith(p) and t[len(p):] in _WARM:
+            return -1
+        if t.startswith(p) and t[len(p):] in _COLD:
+            return 1
     return 0
+
+
+def _valence(disp: str) -> int:
+    """+1 warm, −1 cold, 0 neutral/unknown. Majority of whole-word pole hits, flipped by a sentence
+    negator ('no longer trusting' reads cold). Neutral on a tie or no lexicon hit — a miss scores 0,
+    never a wrong sign (a lexicon-free betrayal is beyond a word list; that's the semantic tier's job)."""
+    d = _norm(disp)
+    toks = d.split()
+    warm = sum(1 for t in toks if _tok_valence(t) > 0)
+    cold = sum(1 for t in toks if _tok_valence(t) < 0)
+    score = 1 if warm > cold else (-1 if cold > warm else 0)
+    if score != 0 and (set(toks) & _NEGATORS or "no longer" in d or "no more" in d):
+        score = -score
+    return score
 
 
 def is_reversal(field: str, old, new) -> bool:
@@ -110,5 +138,14 @@ def history(spath, name=None, field=None) -> list[dict]:
 
 def reversals(spath, since_entry: int = 0) -> list[dict]:
     """Flagged contradictions (a value that reversed with no monotone reason) at/after `since_entry` —
-    the anti-collapse signal a guard surfaces."""
-    return [r for r in entries(spath) if r.get("reversal") and (r.get("entry_start") or 0) >= since_entry]
+    the anti-collapse signal a guard surfaces. A record with no window (entry_start=None, the legacy /
+    parked-fold path) is ALWAYS included — never silently dropped by a windowed query, or the operator
+    would miss a genuine flip that happens to lack a deed_window."""
+    out = []
+    for r in entries(spath):
+        if not r.get("reversal"):
+            continue
+        es = r.get("entry_start")
+        if es is None or es >= since_entry:
+            out.append(r)
+    return out

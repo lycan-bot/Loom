@@ -359,14 +359,14 @@ def apply(proposals: dict, world: Path, state_path: Path, approve,
                                     "source": "consolidate", "reversal": provenance.is_reversal(k, old, v)})
                 fm[k] = v
                 touched = True
+        if changes:                                               # log-FIRST (like the other branches): an
+            ts, te = (deed_window if deed_window else (None, None))   # audit row can outlive a crashed write,
+            for c in changes:                                     # but a write must never outlive its record
+                c["entry_start"], c["entry_end"] = ts, te
+            provenance.log(state_path, changes)
         if touched:
             canon.write_node(world, name, new_body, fm)
             written["nodes"].append(name)
-        if changes:                                               # record after the write commits
-            ts, te = (deed_window if deed_window else (None, None))
-            for c in changes:
-                c["entry_start"], c["entry_end"] = ts, te
-            provenance.log(state_path, changes)
     st = state.load(state_path)
     ts, te = (deed_window if deed_window else (None, None))   # the turn-window, for provenance + events
     changed = False
@@ -534,9 +534,13 @@ def apply_pending(world: Path, spath, approve=None) -> dict:
         return {"nodes": []}
     if approve is None:
         approve = lambda *a: True
+    # date the blessed changes by the windows they were parked from — (earliest start, latest end) across
+    # the pen, so provenance rows carry a when instead of None (approximate when the pen spans folds)
+    wins = [n["_window"] for n in pend if isinstance(n.get("_window"), (list, tuple)) and len(n["_window"]) == 2]
+    dw = (min(w[0] for w in wins), max(w[1] for w in wins)) if wins else None
     written = apply({"nodes": pend, "state": {}, "threads_new": [], "threads_resolved": [],
                      "character_updates": [], "reputation": []}, world, spath,
-                    lambda kind, name, p: kind == "node" and approve(kind, name, p))
+                    lambda kind, name, p: kind == "node" and approve(kind, name, p), deed_window=dw)
     st = state.load(spath)
     st.pop("_pending_canon", None)
     state.save(spath, st)
@@ -559,8 +563,11 @@ def _fold_proposals(proposals, world, spath, start, end, apply_canon):
     if not apply_canon:
         norm_nodes = _normalize(proposals)["nodes"]
         if norm_nodes:
-            queue_pending(spath, norm_nodes)          # PARK canon for bless FIRST — a crash before the
-            pending_names = [n["name"] for n in norm_nodes]   # watermark advance just re-parks (dedup by name)
+            for n in norm_nodes:
+                n["_window"] = [start, end]           # remember the fold window so a later bless can DATE the
+            queue_pending(spath, norm_nodes)          # change (else parked provenance rows carry no when).
+            pending_names = [n["name"] for n in norm_nodes]   # PARK FIRST — a crash before the watermark
+            #                                                    advance just re-parks (dedup by name)
     written = apply(proposals, world, spath, approve, deed_window=(start, end), watermark=end)
     return written, pending_names
 

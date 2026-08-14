@@ -34,6 +34,32 @@ class ReversalLogicTest(unittest.TestCase):
         self.assertFalse(provenance.is_reversal("disposition", "", "hostile"))
         self.assertFalse(provenance.is_reversal("location", None, "The Tavern"))
 
+    def test_negation_flips_valence(self):
+        # red-team HIGH #4: a soured relationship phrased with a negator must flip
+        self.assertTrue(provenance.is_reversal("disposition", "trusting", "no longer trusting"))
+        self.assertTrue(provenance.is_reversal("disposition", "friendly", "not friendly anymore"))
+        self.assertTrue(provenance.is_reversal("disposition", "loyal", "disloyal"))          # dis- prefix
+        self.assertTrue(provenance.is_reversal("disposition", "friendly", "unfriendly"))     # un- prefix
+
+    def test_substring_no_longer_false_positives(self):
+        # red-team #5/#6: whole-word match — 'cold' must not fire inside 'coldly', warm must not be
+        # dominated by a stray substring
+        self.assertEqual(provenance._valence("coldly welcoming"), 0)   # neither pole wins on whole words
+        self.assertFalse(provenance.is_reversal("disposition", "warm", "coldly welcoming"))
+
+    def test_threat_intent_is_cold(self):
+        # red-team #8: a lethal intent flips against prior warmth even without a mood word
+        self.assertTrue(provenance.is_reversal("disposition", "warm and protective", "wants him dead"))
+        self.assertTrue(provenance.is_reversal("disposition", "fond", "plots to betray him"))
+
+    def test_none_window_reversal_survives_windowed_query(self):
+        # red-team #12: a reversal logged without a deed_window must not vanish from a windowed reversals()
+        camp = _camp()
+        sp = camp / "state.json"
+        provenance.log(sp, [{"name": "M", "field": "disposition", "old": "warm", "new": "hostile",
+                             "entry_start": None, "reversal": True}])
+        self.assertEqual([r["name"] for r in provenance.reversals(sp, since_entry=99)], ["M"])
+
 
 class LedgerTest(unittest.TestCase):
     def test_log_and_history_roundtrip(self):
