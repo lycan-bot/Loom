@@ -11,7 +11,8 @@ trusted setup, not the mid-play rewrite the referee guards; the free-text fields
 defanged before they enter the prompt.
 """
 from __future__ import annotations
-from . import canon
+from pathlib import Path
+from . import canon, provenance
 from . import prompt_security as sec
 
 _TRUE = ("true", "1", "yes")
@@ -73,8 +74,26 @@ def save(world, name, role="", description="", wants="", location=""):
         pfm = dict(prior["frontmatter"])
         pfm.pop("player", None)
         canon.write_node(world, prior["name"], prior["body"], pfm)
-    fm = {"kind": "character", "player": "true"}
+    # start from the EXISTING node's frontmatter (if re-saving the same PC) so fields the form never
+    # carries — a disposition/location grown by consolidation, a voice, `met` — aren't clobbered by a
+    # partial UI re-save. This is the same reconcile-don't-clobber floor the diode enforces on canon.
+    same = canon.read_node(world, name)
+    fm = dict(same["frontmatter"]) if same else {}
+    fm["kind"], fm["player"] = "character", "true"
+    changes = []
     for k, v in (("role", role), ("wants", wants), ("location", location)):
-        if (v or "").strip():
-            fm[k] = v.strip()
-    canon.write_node(world, name, (description or "").strip() or name, fm)
+        v, old = (v or "").strip(), str(fm.get(k, "")).strip()
+        if v == old:
+            continue                                    # unchanged (the form prefills, so this is the norm)
+        if old:                                         # a set field changed OR was cleared → never silent
+            changes.append({"kind": "character", "name": name, "field": k, "old": old,
+                            "new": v or "(cleared)", "source": "player_save",
+                            "reversal": bool(v) and provenance.is_reversal(k, old, v)})
+        if v:
+            fm[k] = v
+        else:
+            fm.pop(k, None)                             # deliberate clear (blank in a prefilled form)
+    if changes:
+        provenance.log(Path(world).parent / "state.json", changes)
+    body = (description or "").strip() or (same["body"].strip() if same else name)
+    canon.write_node(world, name, body, fm)

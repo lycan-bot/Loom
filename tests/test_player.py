@@ -3,7 +3,7 @@ that person. Stored as a character node flagged player:true, one per campaign. O
 import tempfile
 import unittest
 from pathlib import Path
-from loom import player, canon, narrate, llm, config
+from loom import player, canon, narrate, llm, config, provenance
 
 
 def _camp():
@@ -43,6 +43,34 @@ class PlayerCardTest(unittest.TestCase):
         self.assertIn("Kestrel", cl)
         self.assertIn("courier", cl)
         self.assertIn("clear her name", cl)
+
+
+class PlayerReconcileTest(unittest.TestCase):
+    def test_resave_preserves_consolidation_grown_fields(self):
+        # red-team: a UI re-save must NOT drop fields the form never carries (disposition/voice grown
+        # by consolidation) — the rebuild-from-scratch clobber
+        camp = _camp()
+        player.save(camp / "world", "Kestrel", role="courier")
+        n = canon.read_node(camp / "world", "Kestrel")
+        fm = dict(n["frontmatter"]); fm["disposition"] = "haunted"; fm["voice"] = "clipped"
+        canon.write_node(camp / "world", "Kestrel", n["body"], fm)          # consolidation grows them
+        player.save(camp / "world", "Kestrel", role="a veteran courier", description="quick, wary")
+        fm2 = canon.read_node(camp / "world", "Kestrel")["frontmatter"]
+        self.assertEqual(fm2.get("disposition"), "haunted")                 # preserved, not clobbered
+        self.assertEqual(fm2.get("voice"), "clipped")                       # preserved
+        self.assertEqual(fm2.get("role"), "a veteran courier")             # the edited field updated
+
+    def test_resave_logs_field_change_to_provenance(self):
+        camp = _camp()
+        player.save(camp / "world", "Kestrel", role="courier", location="Saltmarrow")
+        player.save(camp / "world", "Kestrel", role="courier", location="The Docks")
+        h = provenance.history(camp / "state.json", name="Kestrel", field="location")
+        self.assertEqual((h[0]["old"], h[0]["new"]), ("Saltmarrow", "The Docks"))
+
+    def test_first_save_logs_nothing(self):
+        camp = _camp()
+        player.save(camp / "world", "Kestrel", role="courier", location="Saltmarrow")
+        self.assertEqual(provenance.entries(camp / "state.json"), [])       # nothing to reconcile yet
 
 
 class PlayerInNarrateTest(unittest.TestCase):
