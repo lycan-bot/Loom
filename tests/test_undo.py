@@ -4,7 +4,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from loom import undo, narrate, canon, state, transcript, llm, config
+from loom import undo, narrate, canon, state, transcript, llm, config, provenance
 
 
 def _camp():
@@ -55,6 +55,51 @@ class UndoTest(unittest.TestCase):
             "not json\n" + json.dumps({"n_transcript": 0, "threads": None, "state": None}) + "\n", encoding="utf-8")
         self.assertTrue(undo.undo(camp / "t.jsonl", camp / "state.json"))    # newest (valid) pops first
         self.assertFalse(undo.undo(camp / "t.jsonl", camp / "state.json"))   # only the corrupt line left → skipped
+
+
+class ConsolidationFloorTest(unittest.TestCase):
+    """A turn already folded into canon can't be undone — canon isn't snapshotted, so rolling back
+    below the consolidation watermark would tear canon from the ledger (red-team #1/#10)."""
+
+    def test_undo_refuses_below_the_watermark(self):
+        camp = _camp()
+        tp, sp = camp / "t.jsonl", camp / "state.json"
+        transcript.append(tp, "player", "a turn")
+        transcript.append(tp, "narrator", "a beat")
+        undo.snapshot(tp, sp)                                # snapshot at n_transcript=2
+        transcript.append(tp, "player", "another")
+        # a consolidation folds the transcript up to entry 3 (past the snapshot's position)
+        state.save(sp, {"_consolidated": 3})
+        self.assertFalse(undo.undo(tp, sp))                 # refused — the turn is canonized
+        self.assertFalse(undo.can_undo(tp, sp))             # and the UI reflects it
+        self.assertEqual(len(transcript.read_all(tp)), 3)   # nothing rolled back
+        self.assertTrue((camp / "undo.jsonl").read_text(encoding="utf-8").strip())  # stack left intact
+
+    def test_undo_allowed_above_the_watermark(self):
+        camp = _camp()
+        tp, sp = camp / "t.jsonl", camp / "state.json"
+        transcript.append(tp, "player", "old")
+        state.save(sp, {"_consolidated": 1})                # everything up to 1 is canon
+        transcript.append(tp, "player", "new unconsolidated turn")
+        undo.snapshot(tp, sp)                               # snapshot at n_transcript=2 (>= floor 1)
+        transcript.append(tp, "narrator", "beat")
+        self.assertTrue(undo.can_undo(tp, sp))
+        self.assertTrue(undo.undo(tp, sp))                  # allowed — above the floor
+        self.assertEqual(len(transcript.read_all(tp)), 2)
+
+    def test_manual_consolidate_then_undo_preserves_provenance(self):
+        # red-team #1: a manual consolidate writes facts + advances the watermark past the turn; a
+        # following undo must NOT truncate those provenance records back to the stale pre-turn count
+        camp = _camp()
+        tp, sp = camp / "t.jsonl", camp / "state.json"
+        transcript.append(tp, "player", "a turn")
+        undo.snapshot(tp, sp)                                # n_transcript=1, n_facts=0 captured here
+        transcript.append(tp, "narrator", "a beat")         # the turn's own narration → n_transcript=2
+        provenance.log(sp, [{"name": "Mara", "field": "disposition", "old": "cold", "new": "warm",
+                             "entry_start": 1, "entry_end": 2}])
+        state.save(sp, {"_consolidated": 2})                # the manual fold canonized entries up to 2
+        self.assertFalse(undo.undo(tp, sp))                 # refused: snapshot n=1 < watermark 2
+        self.assertEqual(len(provenance.entries(sp)), 1)    # the provenance record survives — not erased
 
 
 if __name__ == "__main__":

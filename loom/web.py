@@ -86,7 +86,7 @@ def make_handler(cfg: dict):
                                     "label": reputation.label(int(e.get("standing", 0) or 0)),
                                     "log": [s for s in (e.get("log") or []) if isinstance(s, str)]}
                                    for w, e in sorted(rep.items()) if isinstance(e, dict)],
-                    "can_undo": undo.can_undo(tpath),
+                    "can_undo": undo.can_undo(tpath, spath),   # floor-aware: a consolidated turn is not undoable
                     "threads": [{"id": t.id, "question": t.question, "status": t.status,
                                  "readiness": round(t.readiness, 2)} for t in th
                                 if t.status != "resolved"],

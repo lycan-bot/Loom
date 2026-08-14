@@ -15,7 +15,7 @@ import json
 import os
 import tempfile
 from pathlib import Path
-from . import transcript
+from . import transcript, state
 
 _CAP = 30               # keep the last N turns undoable; older snapshots fall off the stack
 
@@ -71,9 +71,38 @@ def snapshot(tpath: Path, spath: Path) -> None:
     _atomic_write(up, "\n".join(lines) + "\n")
 
 
-def can_undo(tpath: Path) -> bool:
+def _consolidation_floor(spath) -> int:
+    """The transcript position consolidation has folded into canon. A snapshot below it can't be
+    restored — canon (which undo never snapshots) already reflects those turns, so rolling the
+    transcript/ledger/watermark below the floor would tear them apart. Consolidation is the commit."""
+    try:
+        return int(state.load(spath).get("_consolidated", 0) or 0)
+    except Exception:
+        return 0
+
+
+def _newest_snapshot(lines):
+    for ln in reversed(lines):
+        try:
+            snap = json.loads(ln)
+        except Exception:
+            continue
+        if isinstance(snap, dict):
+            return snap
+    return None
+
+
+def can_undo(tpath: Path, spath: Path = None) -> bool:
     up = _upath(tpath)
-    return up.exists() and bool(up.read_text(encoding="utf-8").strip())
+    if not (up.exists() and up.read_text(encoding="utf-8").strip()):
+        return False
+    if spath is None:                                   # legacy call: presence-only (no floor check)
+        return True
+    lines = [ln for ln in up.read_text(encoding="utf-8").splitlines() if ln.strip()]
+    snap = _newest_snapshot(lines)
+    if snap is None:
+        return False
+    return int(snap.get("n_transcript", 0) or 0) >= _consolidation_floor(spath)
 
 
 def undo(tpath: Path, spath: Path) -> bool:
@@ -86,15 +115,22 @@ def undo(tpath: Path, spath: Path) -> bool:
     lines = [ln for ln in up.read_text(encoding="utf-8").splitlines() if ln.strip()]
     if not lines:
         return False
+    remaining = list(lines)
     snap = None
-    while lines and snap is None:
+    while remaining and snap is None:
+        cand = remaining.pop()                              # newest first; skip a corrupt entry
         try:
-            snap = json.loads(lines.pop())                  # newest first; skip a corrupt entry
+            snap = json.loads(cand)
         except Exception:
             snap = None
-    _atomic_write(up, ("\n".join(lines) + "\n") if lines else "")
     if not isinstance(snap, dict):
+        _atomic_write(up, ("\n".join(remaining) + "\n") if remaining else "")   # clear corrupt residue
         return False
+    # a turn already folded into canon can't be taken back — restoring below the consolidation floor
+    # would desync canon (never snapshotted) from the rolled-back ledger/watermark. Leave the stack whole.
+    if int(snap.get("n_transcript", 0) or 0) < _consolidation_floor(spath):
+        return False
+    _atomic_write(up, ("\n".join(remaining) + "\n") if remaining else "")       # commit the pop
 
     # restore the transcript by truncating to the remembered entry count (append-only, so this is
     # exactly the pre-turn log). Rewrite in transcript's own jsonl format.
