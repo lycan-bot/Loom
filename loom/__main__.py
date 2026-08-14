@@ -411,7 +411,10 @@ def cmd_compact(cfg, name=""):
         return
     ok, reason = compact.verify(node["body"], distilled)
     print(f"  -> {len(distilled)} chars; {'OK' if ok else 'REFUSED — ' + reason}")
-    if ok and input("apply? [y/N] ").strip().lower() in ("y", "yes"):
+    if not ok:
+        return
+    print("\n--- distilled body (review before blessing) ---\n" + distilled + "\n" + "-" * 48)
+    if input("apply this rewrite? [y/N] ").strip().lower() in ("y", "yes"):
         compact.apply(world, node["name"], distilled)
         print("compacted.")
 

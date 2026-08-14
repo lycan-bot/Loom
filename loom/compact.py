@@ -22,6 +22,18 @@ def _links(body: str) -> set:
     return {m.split("|")[0].strip() for m in _LINK_RE.findall(body or "")}
 
 
+def _names(body: str) -> set:
+    """Distinctive named entities in a body — capitalized words that aren't common words (so 'Varro',
+    'Aldermere' count, 'The'/'She' don't). loom canon carries most facts in PROSE, not [[links]], so
+    the link check alone can't tell if a distillation dropped or invented a person/place."""
+    from . import extract
+    return {w.lower() for w in re.findall(r"[A-Z][A-Za-z']{2,}", body or "") if w.lower() not in extract._COMMON}
+
+
+def _words(body: str) -> set:
+    return set(re.findall(r"[a-z][a-z']*", (body or "").lower()))
+
+
 def oversized(world, threshold: int = _DEFAULT_THRESHOLD) -> list[dict]:
     """Canon nodes whose body has grown past `threshold` chars — the compaction candidates, largest
     first. Deterministic; no model call."""
@@ -69,6 +81,13 @@ def verify(original_body: str, distilled: str, min_shrink: float = 0.15) -> tupl
         return False, f"would drop canon link(s): {', '.join(sorted(lost))}"
     if len(distilled) > len(original_body) * (1 - min_shrink):
         return False, "did not meaningfully shrink"
+    # content preservation (links alone miss loom's prose canon): no named entity dropped, none invented
+    dropped = {n for n in _names(original_body) if n not in _words(distilled)}
+    if dropped:
+        return False, f"would drop named fact(s): {', '.join(sorted(dropped)[:5])}"
+    invented = {n for n in _names(distilled) if n not in _words(original_body)}
+    if invented:
+        return False, f"invented named entities not in the original: {', '.join(sorted(invented)[:5])}"
     return True, "ok"
 
 

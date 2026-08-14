@@ -36,6 +36,26 @@ class CompactTest(unittest.TestCase):
         ok, reason = compact.verify(orig, "[[Wren]] studies wards at [[The College]] — a sharp, warm cadet.")
         self.assertTrue(ok, reason)
 
+    def test_verify_refuses_dropped_prose_fact(self):
+        # red-team HIGH: a fact in unlinked PROSE ('Varro betrayed them') must not vanish silently
+        orig = "[[Wren]] fought bravely. Varro betrayed them at the ford. " + "filler " * 300
+        ok, reason = compact.verify(orig, "[[Wren]] fought bravely — a distilled body long enough to pass the length check truly.")
+        self.assertFalse(ok)
+        self.assertIn("varro", reason.lower())
+
+    def test_verify_refuses_invented_entity(self):
+        # red-team HIGH: the model must not INVENT a named entity absent from the original
+        orig = "[[Wren]] studied the wards. " + "filler " * 300
+        ok, reason = compact.verify(orig, "[[Wren]] studied the wards under Grimwald, a distilled body long enough to pass length checks.")
+        self.assertFalse(ok)
+        self.assertIn("grimwald", reason.lower())
+
+    def test_verify_allows_lowercase_rephrase_of_a_name(self):
+        # a legit distillation may rephrase; a name appearing lowercased is still preserved (no false refusal)
+        orig = "[[Wren]] and Varro met at the Ford. " + "repetitive filler " * 300
+        ok, reason = compact.verify(orig, "[[Wren]] and varro met at the ford — sharp, tense, and brief indeed.")
+        self.assertTrue(ok, reason)
+
     def test_apply_replaces_body_keeps_frontmatter(self):
         camp = _camp()
         canon.write_node(camp / "world", "Wren", "old [[The College]] body " + "x" * 2000,
