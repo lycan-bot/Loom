@@ -11,7 +11,8 @@ time passes the deeper the realness).
 from __future__ import annotations
 import json
 import re
-from . import threads, canon, llm, state, npc, retrieve
+from pathlib import Path
+from . import threads, canon, llm, state, npc, retrieve, episodic, transcript
 
 _JSON_RE = re.compile(r"\{[\s\S]*\}")
 
@@ -117,4 +118,10 @@ def apply(report, threads_path, state_path, approve=lambda *a: True):
     prior = st.get("_recap", "")                      # don't clobber a recap the player hasn't read
     st["_recap"] = (prior + "\n\n" + recap).strip() if prior else recap
     state.save(state_path, st)
+    # the world moving while you slept is a timeline beat — record it (the 'while you were away' clock),
+    # anchored just past the latest played entry so it sorts after the session it followed
+    tpath = Path(state_path).parent / "transcript.jsonl"
+    n_tx = len(transcript.read_all(tpath)) if tpath.exists() else 0
+    episodic.record(state_path, [{"what": recap, "when": "while you were away"}],
+                    entry_start=n_tx, entry_end=n_tx, source="sleep")
     return {"recap": recap, "resolved": resolved}

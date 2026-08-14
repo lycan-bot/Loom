@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from . import canon, npc, llm, state, player, retrieve, consolidate, transcript, config
+from . import canon, npc, llm, state, player, retrieve, consolidate, transcript, config, episodic
 
 _JSON_RE = re.compile(r"\{[\s\S]*\}")
 _MAX_TURNS = 4          # groups that act per round — the world moves without flooding the prompt
@@ -199,6 +199,16 @@ def maybe_round(cfg, world, state_path) -> list:
     tpath = Path(state_path).parent / config.transcript_path(cfg).name   # sibling of THIS state file, not the global one
     in_scene = scene_characters(cfg, world, tpath)
     turns = run(cfg, world, exclude=in_scene)["turns"]
+    # every world-round beat is a real thing that happened off-screen → the timeline records it (the
+    # second clock), anchored just after the latest played entry so 'when did the world move?' resolves.
+    # Recorded here (after this turn's undo-snapshot) so an undo of the turn rolls these beats back too.
+    n_tx = len(transcript.read_all(tpath))
+
+    def _who(w):                                          # a coupled turn's `who` is a list of names
+        return ", ".join(str(x) for x in w) if isinstance(w, (list, tuple)) else str(w or "")
+    episodic.record(state_path, [{"what": (_who(t.get("who")) + ": " + t["beat"]).strip(": ")}
+                                 for t in turns if consolidate._s(t.get("beat")).strip()],
+                    entry_start=n_tx, entry_end=n_tx, source="world")
     # co-located routing: a turn AT the player's current place folds into their SCENE (a 'nearby'
     # note narrate weaves into the next narration), rather than a detached 'meanwhile' pulse. The
     # rest — turns elsewhere in the world — stay the pulse.
