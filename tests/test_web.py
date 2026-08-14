@@ -35,6 +35,12 @@ class WebTest(unittest.TestCase):
         self.assertIn("nodes", self._get("/api/graph"))
         self.assertIn("findings", self._get("/api/check"))
 
+    def test_why_returns_the_provenance_ledger(self):
+        d = self._get("/api/why")                    # whole ledger (read-only)
+        self.assertIn("changes", d)
+        self.assertIsInstance(d["changes"], list)
+        self.assertIn("changes", self._get("/api/why?name=Nobody"))   # filtered form also structural
+
     def test_index_served(self):
         with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/", timeout=5) as r:
             self.assertIn(b"loom", r.read())

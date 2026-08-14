@@ -11,7 +11,7 @@ import threading
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from . import config, canon, state, transcript, narrate, consolidate, llm, threads, imagine, guard, character, sleep, worldturn, player, generate, setting, undo, reputation, salience, assistant, recall, extract, episodic, compact
+from . import config, canon, state, transcript, narrate, consolidate, llm, threads, imagine, guard, character, sleep, worldturn, player, generate, setting, undo, reputation, salience, assistant, recall, extract, episodic, compact, provenance
 
 STATIC = Path(__file__).resolve().parent / "static"
 
@@ -121,6 +121,12 @@ def make_handler(cfg: dict):
                 kraw = (q.get("k") or ["6"])[0]
                 k = max(1, min(20, int(kraw))) if kraw.isdigit() else 6
                 return self._send(200, {"results": recall.search(tpath, query, k=k)})
+            if u.path == "/api/why":
+                # the provenance trail: how a fact reached its value — every change old->new, when, and
+                # whether it was a contradiction. Filter by ?name= (a character/fact) or the whole ledger.
+                name = (q.get("name") or [""])[0].strip()
+                rows = provenance.history(spath, name=name) if name else list(reversed(provenance.entries(spath)))
+                return self._send(200, {"name": name, "changes": rows})
             if u.path == "/api/pending":
                 # canon-node proposals auto-consolidation PARKED for the operator to bless (the diode's pen) —
                 # the fix for auto-fold silently dropping canon past the watermark
