@@ -11,7 +11,7 @@ import threading
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from . import config, canon, state, transcript, narrate, consolidate, llm, threads, imagine, guard, character, sleep, worldturn, player, generate, setting, undo, reputation, salience, assistant, recall, extract, episodic, compact, provenance
+from . import config, canon, state, transcript, narrate, consolidate, llm, threads, imagine, guard, character, sleep, worldturn, player, generate, setting, undo, reputation, salience, assistant, recall, extract, episodic, compact, provenance, npc, agenda, npc_memory, mood
 
 STATIC = Path(__file__).resolve().parent / "static"
 
@@ -127,6 +127,42 @@ def make_handler(cfg: dict):
                 name = (q.get("name") or [""])[0].strip()
                 rows = provenance.history(spath, name=name) if name else list(reversed(provenance.entries(spath)))
                 return self._send(200, {"name": name, "changes": rows})
+            if u.path == "/api/npc":
+                # the NPC's interior, COMPOSED at read time from blessed signals (the mind panel's data +
+                # player-memory when name= the PC): card + personhood rung + mood + agenda + memory of its
+                # own deeds + memory of the player. Pure read; nothing stored, nothing self-propagating.
+                name = (q.get("name") or [""])[0].strip()
+                node = canon.read_node(world, name) if name else None
+                if not node or node["frontmatter"].get("kind") != "character":
+                    return self._send(404, {"error": "no such character"})
+                fm = node["frontmatter"]
+                depth = float(cfg.get("depth", 0) or 0)
+                tier = salience.tiers_by_name(world, tpath, spath).get(name, "side")
+                rung = salience.char_rung(tier, depth)
+                m = npc.moral_read(str(fm.get("wants", "")), str(fm.get("bound", "")))
+                thread_list = threads.load(spath.parent / "threads.json")
+                # for INSPECTION the panel composes the interior even for a low-rung NPC (the live gates
+                # still hold in play); use a display floor so the operator can always see what's there
+                disp_rung = max(rung, 0.5)
+                pursuit = agenda.pursuit(name, m, thread_list, spath, disp_rung)
+                standing = 0
+                rep_e = reputation.load(state.load(spath)).get(name)
+                if isinstance(rep_e, dict):
+                    try:
+                        standing = int(rep_e.get("standing", 0) or 0)
+                    except (TypeError, ValueError):
+                        standing = 0
+                pc = (player.card(world).get("name") or "").strip()
+                _mem = lambda rows: [{"what": e.get("what", ""), "source": e.get("source", "")} for e in rows]
+                return self._send(200, {
+                    "name": name, "tier": tier, "rung": round(rung, 2),
+                    "is_player": player.is_player(node),
+                    "card": character.card(node),
+                    "mood": mood.label(fm.get("disposition", ""), standing, pursuit.get("status", "")),
+                    "agenda": pursuit,
+                    "remembers": _mem(npc_memory.recall(spath, name, k=6, blessed_only=False)),
+                    "remembers_player": _mem(npc_memory.shared(spath, name, pc, k=6, blessed_only=False)) if pc and pc != name else [],
+                })
             if u.path == "/api/pending":
                 # canon-node proposals auto-consolidation PARKED for the operator to bless (the diode's pen) —
                 # the fix for auto-fold silently dropping canon past the watermark

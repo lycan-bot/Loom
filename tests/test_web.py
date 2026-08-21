@@ -2,6 +2,7 @@
 import json
 import threading
 import urllib.request
+import urllib.parse
 import unittest
 from http.server import ThreadingHTTPServer
 from loom import web, config
@@ -34,6 +35,23 @@ class WebTest(unittest.TestCase):
     def test_graph_and_check(self):
         self.assertIn("nodes", self._get("/api/graph"))
         self.assertIn("findings", self._get("/api/check"))
+
+    def test_npc_endpoint_composes_the_interior(self):
+        pc = self._get("/api/player").get("name")            # there is always a PC in a live campaign
+        if not pc:
+            self.skipTest("no player character in the live campaign")
+        d = self._get("/api/npc?name=" + urllib.parse.quote(pc))
+        self.assertEqual(d["name"], pc)
+        self.assertTrue(d["is_player"])
+        for key in ("tier", "rung", "card", "mood", "agenda", "remembers", "remembers_player"):
+            self.assertIn(key, d)                            # the whole interior composes
+
+    def test_npc_endpoint_404_for_unknown(self):
+        try:
+            self._get("/api/npc?name=DefinitelyNoSuchCharacterXYZ")
+            self.fail("expected 404")
+        except urllib.request.HTTPError as e:
+            self.assertEqual(e.code, 404)
 
     def test_why_returns_the_provenance_ledger(self):
         d = self._get("/api/why")                    # whole ledger (read-only)
