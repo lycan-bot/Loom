@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from . import canon, npc, llm, state, player, retrieve, consolidate, transcript, config, episodic
+from . import canon, npc, llm, state, player, retrieve, consolidate, transcript, config, episodic, salience, agenda, threads
 
 _JSON_RE = re.compile(r"\{[\s\S]*\}")
 _MAX_TURNS = 4          # groups that act per round — the world moves without flooding the prompt
@@ -126,16 +126,61 @@ def groups(majors_list) -> list:
     return sorted(list(by_loc.values()) + solo, key=lambda g: (-len(g), g[0][0]["name"]))
 
 
+_DELIBERATE_PROMPT = """You are %s — a person in a living story, not the narrator. The player is
+elsewhere; this is your own moment. Your goal: %s. What you have ACTUALLY done toward it: %s. With you
+now: %s. In ONE sentence, state your INTENT this round: the specific, in-character move you will make
+toward your goal (honouring what holds you back). State your intent, not the outcome."""
+
+
+def _deliberate(name, moral, thread_list, spath, rung, others, ccfg) -> str:
+    """The focal NPC of a high-rung group THINKS before it acts — a one-line intent from its goal and
+    its BLESSED memory (a goal decision never reads the NPC's own improv, so no self-propagation loop
+    can close). '' on any failure (the beat still runs, un-deliberated)."""
+    p = agenda.pursuit(name, moral, thread_list, spath, rung)
+    if not p:
+        return ""
+    did = "; ".join(p["remembers"][:3]) or "nothing yet"
+    goal = p["goal"] + (f" (held back by {p['opposes']})" if p["opposes"] else "")
+    try:
+        raw = llm.complete(_DELIBERATE_PROMPT % (name, goal, did, others or "no one"), ccfg,
+                           max_tokens=60, temperature=0.6)
+        return " ".join(_s(raw).strip().split())[:200]
+    except Exception:
+        return ""
+
+
 def run(cfg, world, exclude=(), tpath=None, spath=None) -> dict:
     """Play one world round: each group of major NPCs takes a turn. Propose-only — returns the
     turns, writes nothing. `exclude` (names) are in the live scene and skipped. `pending` is True
     when there were actors, even if the beat text failed
     (so a caller can distinguish 'no one has an agenda' from 'the model was unreachable')."""
-    gs = groups(majors(world, exclude))[:_MAX_TURNS]
+    depth = float(cfg.get("depth", 0) or 0)
+    enrich = bool(tpath and spath and depth > 0)      # the P4 agency layer rides the live, paths-present path
+    actors = majors(world, exclude)
+    if enrich:
+        # TIER-AWARE CASTING: each actor's personhood budget = char_rung(tier, depth). A walk-on (rung 0)
+        # doesn't take a world-round turn, the highest-personhood characters act first, and the cast WIDENS
+        # with depth (a shallow world moves 1-2 leads; a deep one lets the fuller cast think).
+        tiers = salience.tiers_by_name(world, tpath, spath)
+        thread_list = threads.load(Path(spath).parent / "threads.json")
+        scored = sorted(((n, m, loc, salience.char_rung(tiers.get(n["name"], "side"), depth))
+                         for n, m, loc in actors), key=lambda e: -e[3])
+        scored = [e for e in scored if e[3] > 0]
+        rung_of = {n["name"]: r for n, m, loc, r in scored}
+        gs = groups([(n, m, loc) for n, m, loc, _r in scored])
+        gs = gs[:max(1, min(len(gs), round(1 + depth * 4)))]
+    else:
+        thread_list, rung_of = [], {}
+        gs = groups(actors)[:_MAX_TURNS]              # legacy path (no paths / depth 0): flat cap, no agency
     if not gs:
         return {"turns": [], "pending": False}
-    lines = [f"- At {g[0][2] or 'parts unknown'}: "
-             + "; ".join(f"{node['name']} ({m.because})" for node, m, _loc in g) for g in gs]
+
+    ccfg = dict(cfg)
+    for src, dst in (("consolidate_llm_url", "llm_url"), ("consolidate_model", "llm_model"),
+                     ("consolidate_api_key", "api_key")):
+        if cfg.get(src):
+            ccfg[dst] = cfg[src]
+
     # ground the round in canon RELEVANT to this round's actors (their names, wants, places) — not an
     # arbitrary alphabetical slice of everything (the source of the 'invented testimony' confabulation)
     actor_names = [node["name"] for g in gs for node, m, _loc in g]
@@ -143,16 +188,33 @@ def run(cfg, world, exclude=(), tpath=None, spath=None) -> dict:
                      + [g[0][2] for g in gs if g[0][2]])
     canon_text = retrieve.grounded_context(world, cfg, query, anchors=actor_names,
                                            tpath=tpath, spath=spath) or "(no canon yet)"
+
+    # each group's line — enriched with the NPC's AGENDA (goal + pursuit state + BLESSED memory) when they
+    # have the personhood for one; the focal character of a high-rung group DELIBERATES (think→act) first
+    delib_budget = 2                                  # bound the extra 'think' calls to the top groups
+    lines = []
+    for g in gs:
+        parts = []
+        for node, m, _loc in g:
+            name = node["name"]
+            rung = rung_of.get(name, 0)
+            ag = agenda.line(name, m, thread_list, spath, rung) if (enrich and salience.has_agenda(rung)) else ""
+            parts.append(ag or f"{name} ({m.because})")
+        block = f"- At {g[0][2] or 'parts unknown'}: " + " | ".join(parts)
+        if enrich and delib_budget > 0:
+            focal = max(g, key=lambda e: rung_of.get(e[0]["name"], 0))
+            fname = focal[0]["name"]
+            if salience.deliberates(rung_of.get(fname, 0)):
+                delib_budget -= 1
+                others = ", ".join(n["name"] for n, _m, _l in g if n["name"] != fname)
+                intent = _deliberate(fname, focal[1], thread_list, spath, rung_of.get(fname, 0), others, ccfg)
+                if intent:
+                    block += f"\n    ({fname}'s intent this round: {intent})"
+        lines.append(block)
+
     # constrain `where` to the round's actual locations, so the co-location routing below can match it
     where_vals = sorted({g[0][2] for g in gs if g[0][2]})
     where_prop = {"type": "string", "enum": where_vals + ["parts unknown"]} if where_vals else {"type": "string"}
-    ccfg = dict(cfg)
-    if cfg.get("consolidate_llm_url"):
-        ccfg["llm_url"] = cfg["consolidate_llm_url"]
-    if cfg.get("consolidate_model"):
-        ccfg["llm_model"] = cfg["consolidate_model"]
-    if cfg.get("consolidate_api_key"):
-        ccfg["api_key"] = cfg["consolidate_api_key"]
     try:
         raw = llm.complete(_ROUND_PROMPT % ("\n".join(lines), canon_text), ccfg, max_tokens=400,
                            temperature=0.5, response_format=llm.schema_format("world_round", {
