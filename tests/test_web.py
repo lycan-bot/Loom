@@ -43,8 +43,8 @@ class WebTest(unittest.TestCase):
         d = self._get("/api/npc?name=" + urllib.parse.quote(pc))
         self.assertEqual(d["name"], pc)
         self.assertTrue(d["is_player"])
-        for key in ("tier", "rung", "card", "mood", "agenda", "remembers", "remembers_player"):
-            self.assertIn(key, d)                            # the whole interior composes
+        for key in ("tier", "rung", "card", "mood", "agenda", "remembers", "remembers_player", "agenda_projected"):
+            self.assertIn(key, d)                            # the whole interior composes (+ the display-projection flag)
 
     def test_npc_endpoint_404_for_unknown(self):
         try:

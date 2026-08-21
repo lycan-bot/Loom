@@ -79,6 +79,34 @@ class PlayedBeatWhoTest(unittest.TestCase):
         got = npc_memory.recall(sp, "Wren", k=5, blessed_only=True)   # blessed → the played beat is remembered
         self.assertEqual([e["what"] for e in got], ["Wren struck the bargain with the player"])
 
+    def test_poisoned_who_is_dropped_at_the_write(self):
+        # red-team batch #2: the archivist's who is model-proposed — an actor not named in the beat text
+        # must NOT land in blessed memory (no false self-deed / shared history)
+        camp = _camp(); (camp / "world").mkdir()
+        sp = camp / "state.json"
+        consolidate.apply({"events": [{"what": "the tavern grew quiet", "who": ["Kaelen", "Kess"]}]},
+                          camp / "world", sp, approve=lambda *a: True, deed_window=(1, 2))
+        self.assertFalse(episodic.entries(sp)[0].get("who"))          # neither actor is in the beat → dropped
+        self.assertEqual(npc_memory.recall(sp, "Kaelen", k=5, blessed_only=True), [])          # no false self-memory
+        self.assertEqual(npc_memory.shared(sp, "Kaelen", "Kess", k=5, blessed_only=True), [])  # no false shared history
+
+    def test_honest_who_survives_the_write(self):
+        camp = _camp(); (camp / "world").mkdir()
+        sp = camp / "state.json"
+        consolidate.apply({"events": [{"what": "Wren handed Kess the key", "who": ["Wren", "Kess"]}]},
+                          camp / "world", sp, approve=lambda *a: True, deed_window=(1, 2))
+        self.assertEqual(set(episodic.entries(sp)[0]["who"]), {"Wren", "Kess"})   # both named in the beat → kept
+
+    def test_who_merges_on_a_refold(self):
+        # red-team batch #4: a re-fold of the same beat with a BROADER who unions the actor, never drops it
+        camp = _camp(); sp = camp / "state.json"
+        episodic.record(sp, [{"what": "a duel at dawn", "who": ["Wren"]}], entry_start=1, source="play")
+        episodic.record(sp, [{"what": "a duel at dawn", "who": ["Wren", "Vael"]}], entry_start=1, source="play")
+        rows = episodic.entries(sp)
+        self.assertEqual(len(rows), 1)                                # still one beat (deduped by what)
+        self.assertEqual(set(rows[0]["who"]), {"Wren", "Vael"})       # Vael merged into the stored who
+        self.assertTrue(npc_memory.recall(sp, "Vael", k=5, blessed_only=True))   # Vael now recalls it
+
     def test_played_event_without_who_still_records(self):
         camp = _camp(); (camp / "world").mkdir()
         sp = camp / "state.json"

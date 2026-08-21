@@ -39,3 +39,10 @@ class MoodTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DriveSafetyTest(unittest.TestCase):
+    def test_non_string_status_degrades_not_crashes(self):
+        self.assertEqual(mood._drive(123), "")             # was an AttributeError before str-coercion
+        self.assertEqual(mood._drive(None), "")
+        self.assertEqual(mood.label("warm and fond", 0, ["a", "list"]), "warm toward you")   # bad status ignored

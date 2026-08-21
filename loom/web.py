@@ -157,6 +157,9 @@ def make_handler(cfg: dict):
                 return self._send(200, {
                     "name": name, "tier": tier, "rung": round(rung, 2),
                     "is_player": player.is_player(node),
+                    # the agenda/mood are composed at a DISPLAY floor (0.5) for inspection; in live play a
+                    # sub-0.5-rung NPC gets no agenda — flag it so the panel can't be misread as the live budget
+                    "agenda_projected": bool(rung < salience.AGENDA_RUNG),
                     "card": character.card(node),
                     "mood": mood.label(fm.get("disposition", ""), standing, pursuit.get("status", "")),
                     "agenda": pursuit,

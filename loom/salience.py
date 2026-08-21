@@ -107,7 +107,9 @@ def classify(world: Path, tpath: Path, spath: Path) -> list:
             p, n = len(re.findall(pat, player_log)), len(re.findall(pat, narr_log))
         except re.error:
             p, n = player_log.count(low), narr_log.count(low)
-        return p + min(2, int(round(0.5 * n)))       # narrator alone can't cross a tier threshold
+        return p + min(1, int(round(0.5 * n)))       # narrator caps at +1 — strictly BELOW a tier quantum
+        #                                              (a want+link NPC sits at 3; +2 would reach _MAIN_MIN=5
+        #                                               and self-promote off its own improv, +1 cannot)
 
     def thread_hits(name: str) -> int:
         return sum(1 for t in ths if name in (getattr(t, "entities", []) or []))

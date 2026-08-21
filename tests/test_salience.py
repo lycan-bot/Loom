@@ -151,3 +151,20 @@ class NarratorDiscountTest(unittest.TestCase):
         for _ in range(8):                                   # the PLAYER engaging Wren lifts the tier (full weight)
             transcript.append(t, "player", "I seek out Wren; Wren, Wren, hello Wren.")
         self.assertIn("Wren", self._tiers(camp, t).get("main", []))
+
+
+class NarratorCapTest(unittest.TestCase):
+    """Red-team batch #1: narrator prose (an NPC's own improv, via _nearby) must NOT self-promote a
+    want-bearing, canon-linked NPC side->main — the narrator term caps strictly below a tier quantum."""
+
+    def test_linked_want_bearer_stays_side_on_narrator_only(self):
+        camp = _camp()
+        canon.write_node(camp / "world", "Hall", "a hall", {"kind": "place"})
+        canon.write_node(camp / "world", "Vex", "a schemer [[Hall]]", {"kind": "character", "wants": "power"})
+        t = camp / "t.jsonl"
+        for _ in range(12):
+            transcript.append(t, "narrator", "Vex schemes on; Vex, Vex, Vex, Vex.")
+        tiers = {g["key"]: [c["name"] for c in g["cards"]]
+                 for g in salience.classify(camp / "world", t, camp / "state.json")}
+        self.assertNotIn("Vex", tiers.get("main", []))     # want(+2) + link(+1) + narrator(cap +1) = 4 < 5
+        self.assertIn("Vex", tiers.get("side", []))

@@ -20,6 +20,24 @@ def _path(spath) -> Path:
     return Path(spath).parent / "episodic.jsonl"
 
 
+def _atomic_write(spath, rows) -> None:
+    """Rewrite the whole timeline via a temp + os.replace — used only on the rare who-merge path (a torn
+    write can't corrupt the log)."""
+    p = _path(spath)
+    fd, tmp = tempfile.mkstemp(dir=p.parent, prefix=p.name + ".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            for r in rows:
+                f.write(json.dumps(r, ensure_ascii=False) + "\n")
+        os.replace(tmp, p)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
 def _norm(s) -> str:
     return re.sub(r"[^a-z0-9 ]+", "", str(s).lower()).strip()
 
@@ -61,7 +79,11 @@ def record(spath, events, entry_start=None, entry_end=None, source="play") -> in
     optional `who` (the acting NPC name, or a list) makes the beat addressable per-agent for npc_memory.
     Dedup by (entry_start, normalized what) so a re-consolidated window doesn't double-log. Returns
     how many were newly written."""
-    fresh, seen = [], {(e.get("entry_start"), _norm(e.get("what"))) for e in entries(spath)}
+    existing = entries(spath)
+    by_key = {}
+    for e in existing:                                    # first occurrence per key (rows carry references)
+        by_key.setdefault((e.get("entry_start"), _norm(e.get("what"))), e)
+    fresh, merged = [], False
     for e in events or []:
         if not (isinstance(e, dict) and str(e.get("what", "")).strip()):
             continue
@@ -74,15 +96,24 @@ def record(spath, events, entry_start=None, entry_end=None, source="play") -> in
         if who:
             row["who"] = who                              # the actor(s) — lets an NPC recall its OWN beats
         key = (entry_start, _norm(row["what"]))
-        if key in seen:
+        prior = by_key.get(key)
+        if prior is not None:
+            if who:                                       # a re-fold that names an actor the stored beat MISSED
+                have = {_norm(c) for c in _who_list(prior.get("who"))}   # → union the who instead of dropping it,
+                add = [w for w in who if _norm(w) not in have]           # so the added actor still recalls the beat
+                if add:
+                    prior["who"] = _who_list(prior.get("who")) + add
+                    merged = True
             continue
-        seen.add(key)
+        by_key[key] = row
         fresh.append(row)
-    if not fresh:
-        return 0
-    with open(_path(spath), "a", encoding="utf-8") as f:
-        for row in fresh:
-            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+    if merged:                                            # a stored row's who grew → rewrite the log (rare path)
+        _atomic_write(spath, existing + fresh)
+        return len(fresh)
+    if fresh:
+        with open(_path(spath), "a", encoding="utf-8") as f:
+            for row in fresh:
+                f.write(json.dumps(row, ensure_ascii=False) + "\n")
     return len(fresh)
 
 

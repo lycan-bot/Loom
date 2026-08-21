@@ -15,7 +15,7 @@ from . import provenance
 
 def _drive(status) -> str:
     """The felt tenor of a pursuit, from agenda's status phrase (a blessed thread-ripeness read)."""
-    s = (status or "").lower()
+    s = str(status or "").lower()                      # str() so a non-string status degrades, never raises
     if "at a head" in s:
         return "keyed-up, ready to act"
     if "pressing" in s:

@@ -185,9 +185,15 @@ def _normalize(proposals: dict) -> dict:
         what = _s(ev.get("what")).strip()
         if what:
             who_raw = ev.get("who")                        # who ACTED in this beat — makes a played beat
-            who = ([w for w in who_raw if isinstance(w, str) and w.strip()]   # addressable per-agent so an NPC
-                   if isinstance(who_raw, list) else                          # (or the player) recalls its OWN deeds
-                   ([who_raw.strip()] if isinstance(who_raw, str) and who_raw.strip() else []))
+            cand = ([w for w in who_raw if isinstance(w, str) and w.strip()]  # addressable per-agent so an NPC
+                    if isinstance(who_raw, list) else                         # (or the player) recalls its OWN deeds
+                    ([who_raw.strip()] if isinstance(who_raw, str) and who_raw.strip() else []))
+            # the archivist's `who` is MODEL-PROPOSED, over a player-authored log — validate each actor
+            # against the beat text so a poisoned/hallucinated who can't plant a false deed or shared
+            # history in BLESSED memory (a name not in the beat is dropped; the honest ones pass).
+            low_what = provenance._norm(what)
+            who = [w for w in cand
+                   if provenance._norm(w) and re.search(r"\b" + re.escape(provenance._norm(w)) + r"\b", low_what)]
             events.append({"what": what, "when": _s(ev.get("when")).strip(), "who": who})
 
     resolved_raw = proposals.get("threads_resolved")
