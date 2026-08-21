@@ -184,7 +184,11 @@ def _normalize(proposals: dict) -> dict:
     for ev in _dicts(proposals.get("events")):
         what = _s(ev.get("what")).strip()
         if what:
-            events.append({"what": what, "when": _s(ev.get("when")).strip()})
+            who_raw = ev.get("who")                        # who ACTED in this beat — makes a played beat
+            who = ([w for w in who_raw if isinstance(w, str) and w.strip()]   # addressable per-agent so an NPC
+                   if isinstance(who_raw, list) else                          # (or the player) recalls its OWN deeds
+                   ([who_raw.strip()] if isinstance(who_raw, str) and who_raw.strip() else []))
+            events.append({"what": what, "when": _s(ev.get("when")).strip(), "who": who})
 
     resolved_raw = proposals.get("threads_resolved")
     return {
@@ -245,7 +249,7 @@ Respond with ONE json object:
   "threads_resolved": ["<id of an open thread the session ANSWERED, if any>"],
   "character_updates": [{"name": "an existing character", "disposition": "how they now feel toward the player, ONLY if it clearly shifted this session", "location": "the place they are now, ONLY if they moved this session"}],
   "reputation": [{"who": "a faction, group, or notable person", "delta": -1, "because": "the DEED this session that moved their regard for the player (a small integer -3..3; negative = worse)"}],
-  "events":  [{"what": "a concrete thing that HAPPENED this session — a beat worth remembering later, in past tense", "when": "(optional) the in-fiction time it happened ('the next morning', 'that night', 'days later') — ONLY if the prose states it"}],
+  "events":  [{"what": "a concrete thing that HAPPENED this session — a beat worth remembering later, in past tense", "when": "(optional) the in-fiction time it happened ('the next morning', 'that night', 'days later') — ONLY if the prose states it", "who": ["the character name(s) who ACTED in this beat — the player and/or the NPCs involved, EXACTLY as named in canon"]}],
   "summary": "one sentence on what changed"
 }
 Only open a thread for a genuine NEW dramatic question the session actually raised; only resolve \
@@ -276,7 +280,8 @@ _SCHEMA = {
         "reputation": {"type": "array", "items": {"type": "object", "properties": {
             "who": {"type": "string"}, "delta": {"type": "integer"}, "because": {"type": "string"}}}},
         "events": {"type": "array", "items": {"type": "object", "properties": {
-            "what": {"type": "string"}, "when": {"type": "string"}}}},
+            "what": {"type": "string"}, "when": {"type": "string"},
+            "who": {"type": "array", "items": {"type": "string"}}}}},
         "summary": {"type": "string"},
     },
 }

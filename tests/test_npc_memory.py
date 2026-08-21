@@ -4,7 +4,7 @@ NPC's own world-round improv, so it can't reinforce a goal off its own imagined 
 import tempfile
 import unittest
 from pathlib import Path
-from loom import episodic, npc_memory
+from loom import episodic, npc_memory, consolidate
 
 
 def _camp():
@@ -64,6 +64,27 @@ class RecallTest(unittest.TestCase):
     def test_k_zero_returns_nothing(self):
         camp = _camp(); sp = camp / "state.json"; self._seed(sp)
         self.assertEqual(npc_memory.recall(sp, "Wren", k=0), [])   # a passing NPC (rung→0) recalls nothing
+
+
+class PlayedBeatWhoTest(unittest.TestCase):
+    def test_consolidate_records_played_events_with_who(self):
+        # R1 keystone: a PLAYED beat (through the diode) now carries its actor, so npc_memory recalls it
+        # by STRUCTURE (source='play' = blessed) instead of a fragile text match
+        camp = _camp(); (camp / "world").mkdir()
+        sp = camp / "state.json"
+        consolidate.apply({"events": [{"what": "Wren struck the bargain with the player", "who": ["Wren"]}]},
+                          camp / "world", sp, approve=lambda *a: True, deed_window=(3, 4))
+        rows = episodic.entries(sp)
+        self.assertEqual(rows[0].get("who"), ["Wren"])
+        got = npc_memory.recall(sp, "Wren", k=5, blessed_only=True)   # blessed → the played beat is remembered
+        self.assertEqual([e["what"] for e in got], ["Wren struck the bargain with the player"])
+
+    def test_played_event_without_who_still_records(self):
+        camp = _camp(); (camp / "world").mkdir()
+        sp = camp / "state.json"
+        consolidate.apply({"events": [{"what": "a storm broke over the coast"}]},
+                          camp / "world", sp, approve=lambda *a: True, deed_window=(1, 2))
+        self.assertEqual(len(episodic.entries(sp)), 1)               # who is optional; the beat still lands
 
 
 class ClauseTest(unittest.TestCase):
