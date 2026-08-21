@@ -47,9 +47,18 @@ def entries(spath) -> list[dict]:
     return out
 
 
+def _who_list(w):
+    """Normalize an event's actor(s) to a clean list of names — accepts a string or a list."""
+    if isinstance(w, (list, tuple)):
+        return [str(x).strip() for x in w if str(x).strip()]
+    w = str(w or "").strip()
+    return [w] if w else []
+
+
 def record(spath, events, entry_start=None, entry_end=None, source="play") -> int:
-    """Append events to the timeline. Each event is {what, when?}; the real clock is the TRANSCRIPT-
-    ENTRY range (entry_start, entry_end) — entry indices, not turn/pair counts — plus the source.
+    """Append events to the timeline. Each event is {what, when?, who?}; the real clock is the TRANSCRIPT-
+    ENTRY range (entry_start, entry_end) — entry indices, not turn/pair counts — plus the source. An
+    optional `who` (the acting NPC name, or a list) makes the beat addressable per-agent for npc_memory.
     Dedup by (entry_start, normalized what) so a re-consolidated window doesn't double-log. Returns
     how many were newly written."""
     fresh, seen = [], {(e.get("entry_start"), _norm(e.get("what"))) for e in entries(spath)}
@@ -61,6 +70,9 @@ def record(spath, events, entry_start=None, entry_end=None, source="play") -> in
         when = str(e.get("when", "")).strip()
         if when:
             row["when"] = when                            # the in-fiction 'story time' clock (best-effort)
+        who = _who_list(e.get("who"))
+        if who:
+            row["who"] = who                              # the actor(s) — lets an NPC recall its OWN beats
         key = (entry_start, _norm(row["what"]))
         if key in seen:
             continue

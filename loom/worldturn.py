@@ -207,7 +207,8 @@ def maybe_round(cfg, world, state_path) -> list:
 
     def _who(w):                                          # a coupled turn's `who` is a list of names
         return ", ".join(str(x) for x in w) if isinstance(w, (list, tuple)) else str(w or "")
-    episodic.record(state_path, [{"what": (_who(t.get("who")) + ": " + t["beat"]).strip(": ")}
+    episodic.record(state_path, [{"what": (_who(t.get("who")) + ": " + t["beat"]).strip(": "),
+                                  "who": t.get("who")}    # the actor(s) — so each NPC can recall its own beats
                                  for t in turns if consolidate._s(t.get("beat")).strip()],
                     entry_start=n_tx, entry_end=n_tx, source="world")
     # co-located routing: a turn AT the player's current place folds into their SCENE (a 'nearby'

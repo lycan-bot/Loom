@@ -125,6 +125,7 @@ def apply(report, threads_path, state_path, approve=lambda *a: True):
     # anchored just past the latest played entry so it sorts after the session it followed
     tpath = Path(state_path).parent / "transcript.jsonl"
     n_tx = len(transcript.read_all(tpath)) if tpath.exists() else 0
-    episodic.record(state_path, [{"what": recap, "when": "while you were away"}],
+    episodic.record(state_path, [{"what": recap, "when": "while you were away",
+                                  "who": report.get("moves")}],   # who stirred while away — for per-NPC recall
                     entry_start=n_tx, entry_end=n_tx, source="sleep")
     return {"recap": recap, "resolved": resolved}
