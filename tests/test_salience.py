@@ -83,3 +83,46 @@ class SalienceTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CharRungTest(unittest.TestCase):
+    """char_rung(tier, depth): the depth-modulation primitive — personhood budget = tier × depth."""
+
+    def test_tier_and_depth_scale(self):
+        self.assertEqual(salience.char_rung("main", 1.0), 1.0)
+        self.assertEqual(salience.char_rung("main", 0.5), 0.5)
+        self.assertEqual(salience.char_rung("side", 1.0), 0.5)
+        self.assertEqual(salience.char_rung("passing", 1.0), 0.0)     # a walk-on is never a person
+        self.assertEqual(salience.char_rung("world", 1.0), 0.0)       # setting isn't an agent
+
+    def test_depth_zero_darkens_everyone(self):
+        for t in ("main", "antagonist", "side", "passing"):
+            self.assertEqual(salience.char_rung(t, 0.0), 0.0)
+
+    def test_bad_inputs_are_zero_not_crash(self):
+        self.assertEqual(salience.char_rung("nonsense", 1.0), 0.0)
+        self.assertEqual(salience.char_rung("main", None), 0.0)
+        self.assertEqual(salience.char_rung("main", "x"), 0.0)
+
+    def test_recall_k_scales(self):
+        self.assertEqual(salience.recall_k(salience.char_rung("main", 1.0)), 4)
+        self.assertEqual(salience.recall_k(salience.char_rung("side", 1.0)), 2)
+        self.assertEqual(salience.recall_k(salience.char_rung("passing", 1.0)), 0)
+
+    def test_gates(self):
+        # agenda: main from depth 0.5, side only at depth 1.0, passing never
+        self.assertTrue(salience.has_agenda(salience.char_rung("main", 0.5)))
+        self.assertTrue(salience.has_agenda(salience.char_rung("side", 1.0)))
+        self.assertFalse(salience.has_agenda(salience.char_rung("side", 0.5)))
+        self.assertFalse(salience.has_agenda(salience.char_rung("passing", 1.0)))
+        # deliberation: main/antagonist at high depth only; side never reaches it
+        self.assertTrue(salience.deliberates(salience.char_rung("main", 0.8)))
+        self.assertFalse(salience.deliberates(salience.char_rung("side", 1.0)))
+
+    def test_tiers_by_name_maps_cast(self):
+        camp = _camp()
+        canon.write_node(camp / "world", "Mara", "a fisher", {"kind": "character", "importance": "main"})
+        canon.write_node(camp / "world", "Harbor", "a cold harbor", {"kind": "place"})
+        t = _camp() and salience.tiers_by_name(camp / "world", camp / "t.jsonl", camp / "state.json")
+        self.assertEqual(t.get("Mara"), "main")           # explicit override honored
+        self.assertEqual(t.get("Harbor"), "world")        # a place is world-fabric

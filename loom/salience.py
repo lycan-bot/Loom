@@ -185,3 +185,48 @@ def classify(world: Path, tpath: Path, spath: Path) -> list:
         else:
             tiers[k].sort(key=lambda c: (-c["score"], c["name"]))
     return [{"key": k, "label": TIER_LABELS[k], "cards": tiers[k]} for k in TIERS]
+
+
+# --- char_rung: the depth-modulation primitive (NPC-agency P3) ---
+# An NPC's PERSONHOOD BUDGET = their salience TIER weight × the realness dial (depth). This is the one
+# scalar the whole agency arc reads: it sets how many past beats an NPC recalls (npc_memory), whether it
+# earns a tracked agenda that it pursues over time, and whether it deliberates before acting. A passing
+# walk-on gets 0 (today's stateless behavior); a main character at high depth gets the full person.
+_TIER_WEIGHT = {"main": 1.0, "antagonist": 1.0, "side": 0.5,
+                "passing": 0.0, "world": 0.0, "factions": 0.0}
+
+AGENDA_RUNG = 0.5        # at/above this an NPC earns a tracked, progress-bearing agenda (P2)
+DELIBERATE_RUNG = 0.75   # at/above this an NPC thinks before it acts (P4) — bounds the deliberation cost
+
+
+def char_rung(tier: str, depth) -> float:
+    """Personhood budget in [0, 1] = tier weight × depth. 0 = a walk-on (no memory, no agenda);
+    1 = a full character. Pure + deterministic; the arc's single depth-modulation dial."""
+    try:
+        d = max(0.0, min(1.0, float(depth)))
+    except (TypeError, ValueError):
+        d = 0.0
+    return _TIER_WEIGHT.get(str(tier or "").strip().lower(), 0.0) * d
+
+
+def recall_k(rung: float) -> int:
+    """How many past beats this NPC recalls — 0 for a walk-on, up to ~4 for a full character."""
+    return int(round(max(0.0, float(rung or 0.0)) * 4))
+
+
+def has_agenda(rung: float) -> bool:
+    return float(rung or 0.0) >= AGENDA_RUNG
+
+
+def deliberates(rung: float) -> bool:
+    return float(rung or 0.0) >= DELIBERATE_RUNG
+
+
+def tiers_by_name(world: Path, tpath: Path, spath: Path) -> dict:
+    """name -> tier key (main/antagonist/side/passing/world/factions), from classify — so a caller can
+    compute char_rung per NPC. Pure read (classify writes nothing)."""
+    out = {}
+    for group in classify(world, tpath, spath):
+        for c in group["cards"]:
+            out[c["name"]] = group["key"]
+    return out
