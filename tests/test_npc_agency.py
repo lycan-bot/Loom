@@ -74,6 +74,19 @@ class AgencyIntegrationTest(unittest.TestCase):
         beat_prompt = next(p for p in calls if "THIS ROUND" in p)
         self.assertIn("intent this round", beat_prompt)       # the intent is fed into the beat
 
+    def test_mood_colors_the_world_round_line(self):
+        # R3: a disposition'd lead's mood is composed into its world-round actor line
+        camp = _camp()
+        canon.write_node(camp / "world", "Library", "a library", {"kind": "place"})
+        canon.write_node(camp / "world", "Wren", "a cadet", {"kind": "character", "importance": "main",
+                                                             "wants": "to escape", "location": "Library",
+                                                             "disposition": "warm and fond of the player"})
+        cfg = dict(config.DEFAULTS); cfg["depth"] = 1.0
+        _out, calls = self._run(camp, cfg)
+        actors = next(p for p in calls if "THIS ROUND" in p).split("THIS ROUND")[1].split("CANON")[0]
+        self.assertIn("Wren feels", actors)
+        self.assertIn("warm toward you", actors)
+
     def test_no_deliberation_at_low_depth(self):
         # at depth 0.5 Wren is main → rung 0.5: has an agenda, but below the deliberation threshold (0.75)
         camp = _camp(); _world(camp)

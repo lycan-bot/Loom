@@ -72,10 +72,14 @@ def pursuit(name, moral, thread_list, spath, rung) -> dict:
 
 
 def line(name, moral, thread_list, spath, rung) -> str:
-    """A prompt fragment: the NPC's goal, what opposes it, how ripe the pursuit is, and what they
-    actually did toward it — so a world-round beat CONTINUES their arc instead of restarting it.
-    '' when they have no agenda (no want, or rung 0). Blessed memory only (goal-safe)."""
-    p = pursuit(name, moral, thread_list, spath, rung)
+    """A prompt fragment for the NPC's pursuit — see line_of(). Computes the pursuit and formats it."""
+    return line_of(pursuit(name, moral, thread_list, spath, rung))
+
+
+def line_of(p) -> str:
+    """Format a pursuit dict (from pursuit()): the NPC's goal, what opposes it, how ripe the pursuit is,
+    and what they actually did toward it — so a world-round beat CONTINUES their arc instead of
+    restarting it. '' for an empty pursuit (no want / rung 0). Lets a caller reuse ONE pursuit() call."""
     if not p:
         return ""
     bits = [f"{p['name']} wants {p['goal']}"]

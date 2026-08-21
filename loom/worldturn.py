@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from . import canon, npc, llm, state, player, retrieve, consolidate, transcript, config, episodic, salience, agenda, threads
+from . import canon, npc, llm, state, player, retrieve, consolidate, transcript, config, episodic, salience, agenda, threads, mood, reputation
 from . import prompt_security as sec
 
 _JSON_RE = re.compile(r"\{[\s\S]*\}")
@@ -200,14 +200,27 @@ def run(cfg, world, exclude=(), tpath=None, spath=None) -> dict:
     # each group's line — enriched with the NPC's AGENDA (goal + pursuit state + BLESSED memory) when they
     # have the personhood for one; the focal character of a high-rung group DELIBERATES (think→act) first
     delib_budget = 2                                  # bound the extra 'think' calls to the top groups
+    rep = reputation.load(state.load(spath)) if enrich else {}
+
+    def _standing(nm):
+        e = rep.get(nm)
+        try:
+            return int(e.get("standing", 0)) if isinstance(e, dict) else 0
+        except (TypeError, ValueError):
+            return 0
+
     lines = []
     for g in gs:
         parts = []
         for node, m, _loc in g:
             name = node["name"]
             rung = rung_of.get(name, 0)
-            ag = agenda.line(name, m, thread_list, spath, rung) if (enrich and salience.has_agenda(rung)) else ""
-            parts.append(ag or f"{name} ({m.because})")
+            if enrich and salience.has_agenda(rung):
+                p = agenda.pursuit(name, m, thread_list, spath, rung)   # ONE pursuit call → agenda + mood
+                md = mood.clause(name, node["frontmatter"].get("disposition", ""), _standing(name), p.get("status", ""), rung)
+                parts.append(((agenda.line_of(p) + (" " + md if md else "")).strip()) or f"{name} ({m.because})")
+            else:
+                parts.append(f"{name} ({m.because})")
         block = f"- At {g[0][2] or 'parts unknown'}: " + " | ".join(parts)
         if enrich and delib_budget > 0:
             focal = max(g, key=lambda e: rung_of.get(e[0]["name"], 0))
