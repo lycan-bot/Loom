@@ -5,7 +5,7 @@ conflict. Offline, deterministic."""
 import tempfile
 import unittest
 from pathlib import Path
-from loom import salience, canon, state
+from loom import salience, canon, state, transcript
 
 
 def _camp():
@@ -126,3 +126,28 @@ class CharRungTest(unittest.TestCase):
         t = _camp() and salience.tiers_by_name(camp / "world", camp / "t.jsonl", camp / "state.json")
         self.assertEqual(t.get("Mara"), "main")           # explicit override honored
         self.assertEqual(t.get("Harbor"), "world")        # a place is world-fabric
+
+
+class NarratorDiscountTest(unittest.TestCase):
+    """Red-team #1: a character's own world-round beats reach the transcript as NARRATOR prose; those
+    must not pump its salience/tier (the self-amplification decay._recency already guards against)."""
+
+    def _tiers(self, camp, t):
+        return {g["key"]: [c["name"] for c in g["cards"]]
+                for g in salience.classify(camp / "world", t, camp / "state.json")}
+
+    def test_narrator_mentions_cannot_promote_a_tier(self):
+        camp = _camp()
+        canon.write_node(camp / "world", "Wren", "a cadet", {"kind": "character", "wants": "to leave"})
+        t = camp / "t.jsonl"
+        for _ in range(8):                                   # the narrator names Wren relentlessly (its own beats)
+            transcript.append(t, "narrator", "Wren does something Wren-ish; Wren, Wren, Wren.")
+        self.assertNotIn("Wren", self._tiers(camp, t).get("main", []))   # capped → stays side
+
+    def test_player_mentions_still_promote(self):
+        camp = _camp()
+        canon.write_node(camp / "world", "Wren", "a cadet", {"kind": "character", "wants": "to leave"})
+        t = camp / "t.jsonl"
+        for _ in range(8):                                   # the PLAYER engaging Wren lifts the tier (full weight)
+            transcript.append(t, "player", "I seek out Wren; Wren, Wren, hello Wren.")
+        self.assertIn("Wren", self._tiers(camp, t).get("main", []))

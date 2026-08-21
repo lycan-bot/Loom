@@ -18,6 +18,7 @@ import json
 import re
 from pathlib import Path
 from . import canon, npc, llm, state, player, retrieve, consolidate, transcript, config, episodic, salience, agenda, threads
+from . import prompt_security as sec
 
 _JSON_RE = re.compile(r"\{[\s\S]*\}")
 _MAX_TURNS = 4          # groups that act per round — the world moves without flooding the prompt
@@ -142,9 +143,13 @@ def _deliberate(name, moral, thread_list, spath, rung, others, ccfg) -> str:
     did = "; ".join(p["remembers"][:3]) or "nothing yet"
     goal = p["goal"] + (f" (held back by {p['opposes']})" if p["opposes"] else "")
     try:
-        raw = llm.complete(_DELIBERATE_PROMPT % (name, goal, did, others or "no one"), ccfg,
-                           max_tokens=60, temperature=0.6)
-        return " ".join(_s(raw).strip().split())[:200]
+        # goal/memory/name are canon- or model-authored → defang the fence sigil + frame as untrusted,
+        # and output-guard the intent (a small RP model can cave); a compromised intent is dropped
+        raw = llm.complete(sec.UNTRUSTED_PREAMBLE + "\n\n" + _DELIBERATE_PROMPT % (
+            sec.neutralize(name), sec.neutralize(goal), sec.neutralize(did), sec.neutralize(others or "no one")),
+            ccfg, max_tokens=60, temperature=0.6)
+        intent = " ".join(_s(raw).strip().split())[:200]
+        return "" if sec.looks_compromised(intent) else intent
     except Exception:
         return ""
 
@@ -168,6 +173,9 @@ def run(cfg, world, exclude=(), tpath=None, spath=None) -> dict:
         scored = [e for e in scored if e[3] > 0]
         rung_of = {n["name"]: r for n, m, loc, r in scored}
         gs = groups([(n, m, loc) for n, m, loc, _r in scored])
+        # groups() re-sorts by SIZE, discarding the rung order — so re-rank by the group's highest-rung
+        # member before the cap, or the largest group survives and a lead is dropped for lower-tier extras
+        gs = sorted(gs, key=lambda g: -max(rung_of.get(n["name"], 0) for n, _m, _l in g))
         gs = gs[:max(1, min(len(gs), round(1 + depth * 4)))]
     else:
         thread_list, rung_of = [], {}
@@ -216,7 +224,12 @@ def run(cfg, world, exclude=(), tpath=None, spath=None) -> dict:
     where_vals = sorted({g[0][2] for g in gs if g[0][2]})
     where_prop = {"type": "string", "enum": where_vals + ["parts unknown"]} if where_vals else {"type": "string"}
     try:
-        raw = llm.complete(_ROUND_PROMPT % ("\n".join(lines), canon_text), ccfg, max_tokens=400,
+        # the actors block carries canon wants + names + blessed memory + the (model-authored) intent, and
+        # canon is the grounded slice — all untrusted story data → fence it, so an injected want/name/beat
+        # can't seize the chronicler (the same discipline narrate/referee already use)
+        raw = llm.complete(sec.UNTRUSTED_PREAMBLE + "\n\n"
+                           + _ROUND_PROMPT % (sec.wrap("\n".join(lines), "actors"), sec.wrap(canon_text, "canon")),
+                           ccfg, max_tokens=400,
                            temperature=0.5, response_format=llm.schema_format("world_round", {
                                "type": "object", "properties": {"turns": {"type": "array", "items": {
                                    "type": "object", "properties": {
@@ -235,7 +248,7 @@ def run(cfg, world, exclude=(), tpath=None, spath=None) -> dict:
         if not isinstance(t, dict):
             continue
         beat = _s(t.get("beat")).strip()
-        if not beat:
+        if not beat or sec.looks_compromised(beat):     # a beat that leaked the prompt / broke character is dropped
             continue
         who_raw = t.get("who")
         who = [w for w in who_raw if isinstance(w, str)] if isinstance(who_raw, list) else []

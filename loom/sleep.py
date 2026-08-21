@@ -13,6 +13,7 @@ import json
 import re
 from pathlib import Path
 from . import threads, canon, llm, state, npc, retrieve, episodic, transcript
+from . import prompt_security as sec
 
 _JSON_RE = re.compile(r"\{[\s\S]*\}")
 
@@ -85,7 +86,9 @@ def advance(cfg, world, threads_path):
     if cfg.get("consolidate_api_key"):
         ccfg["api_key"] = cfg["consolidate_api_key"]
     try:
-        raw = llm.complete(_RECAP_PROMPT % (items_text, canon_text), ccfg, max_tokens=300,
+        raw = llm.complete(sec.UNTRUSTED_PREAMBLE + "\n\n"       # items carry canon wants; canon is raw
+                           + _RECAP_PROMPT % (sec.wrap(items_text, "items"), sec.wrap(canon_text, "canon")),
+                           ccfg, max_tokens=300,
                            temperature=0.4, response_format=llm.schema_format("sleep_recap", {
                                "type": "object", "properties": {
                                    "recap": {"type": "string"},
@@ -94,7 +97,8 @@ def advance(cfg, world, threads_path):
         data = json.loads(m.group(0)) if m else {}
     except Exception:
         data = {}
-    report["recap"] = (data.get("recap") or "").strip()
+    recap = (data.get("recap") or "").strip()
+    report["recap"] = "" if sec.looks_compromised(recap) else recap   # a caved recap doesn't reach the player
     report["resolved"] = [r for r in (data.get("resolved") or []) if isinstance(r, str)]
     return report
 

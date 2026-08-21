@@ -91,14 +91,23 @@ def classify(world: Path, tpath: Path, spath: Path) -> list:
            if getattr(t, "status", "") != "resolved"]
     st = state.load(spath)
     rep = st.get("_rep") if isinstance(st.get("_rep"), dict) else {}
-    log = "\n".join(str(e.get("text", "")) for e in transcript.read_all(tpath)).lower()
+    # split the log by role: the PLAYER's mentions anchor salience at full weight; the NARRATOR's prose
+    # (model output — which an NPC's own world-round beat can reach via the _nearby weave) counts at HALF
+    # and is CAPPED, so a character can't self-amplify its own tier/rung off its own output (the same
+    # anti-self-amplification diode decay._recency uses; without it char_rung ratchets on improv).
+    _entries = transcript.read_all(tpath)
+    player_log = "\n".join(str(e.get("text", "")) for e in _entries if e.get("role") == "player").lower()
+    narr_log = "\n".join(str(e.get("text", "")) for e in _entries if e.get("role") != "player").lower()
     deg = _degree(nodes)
 
     def mentions(name: str) -> int:
+        low = name.lower()
         try:
-            return len(re.findall(r"\b" + re.escape(name.lower()) + r"\b", log))
+            pat = r"\b" + re.escape(low) + r"\b"
+            p, n = len(re.findall(pat, player_log)), len(re.findall(pat, narr_log))
         except re.error:
-            return log.count(name.lower())
+            p, n = player_log.count(low), narr_log.count(low)
+        return p + min(2, int(round(0.5 * n)))       # narrator alone can't cross a tier threshold
 
     def thread_hits(name: str) -> int:
         return sum(1 for t in ths if name in (getattr(t, "entities", []) or []))

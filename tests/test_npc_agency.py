@@ -83,6 +83,24 @@ class AgencyIntegrationTest(unittest.TestCase):
         beat_prompt = next(p for p in calls if "THIS ROUND" in p)
         self.assertIn("Wren wants to escape", beat_prompt)    # still agenda-injected (rung 0.5 >= 0.5)
 
+    def test_cast_cap_keeps_the_lead_not_the_biggest_group(self):
+        # red-team HIGH: at a tight cast cap, the highest-rung actor must survive — not the largest group
+        camp = _camp()
+        w = camp / "world"
+        canon.write_node(w, "Peak", "a lonely peak", {"kind": "place"})
+        canon.write_node(w, "Inn", "a crowded inn", {"kind": "place"})
+        canon.write_node(w, "Hero", "the lead", {"kind": "character", "importance": "main",
+                                                 "wants": "to reach the summit", "location": "Peak"})
+        canon.write_node(w, "S1", "an extra", {"kind": "character", "importance": "side",
+                                               "wants": "to gossip", "location": "Inn"})
+        canon.write_node(w, "S2", "an extra", {"kind": "character", "importance": "side",
+                                               "wants": "to gossip", "location": "Inn"})
+        cfg = dict(config.DEFAULTS); cfg["depth"] = 0.1        # cap = round(1 + 0.4) = 1 group
+        _out, calls = self._run(camp, cfg)
+        actors = next(p for p in calls if "THIS ROUND" in p).split("THIS ROUND")[1].split("CANON")[0]
+        self.assertIn("Hero", actors)                         # the lead survives the cap…
+        self.assertNotIn("S1", actors)                        # …not the larger, lower-tier group
+
     def test_legacy_path_has_no_agency_layer(self):
         # run() without paths (the legacy/test entrypoint) keeps the old flat behavior — no agenda, no deliberation
         camp = _camp(); _world(camp)
