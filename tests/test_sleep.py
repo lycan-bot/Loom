@@ -85,6 +85,26 @@ class NpcMovesTest(unittest.TestCase):
         self.assertIn("leave the harbor", cap["p"])      # grounded in the stated want
         self.assertIn("berths", r["recap"])
 
+    def test_lead_continues_its_arc_across_sleep(self):
+        # R4: a lead's sleep move carries its agenda (goal + BLESSED memory), not a flat amnesiac step
+        from loom import episodic
+        camp = _camp()
+        canon.write_node(camp / "world", "Wren", "a cadet",
+                         {"kind": "character", "importance": "main", "wants": "to escape the college"})
+        episodic.record(camp / "state.json", [{"what": "Wren copied a warded page", "who": ["Wren"]}],
+                        entry_start=1, source="play")
+        cfg = dict(config.DEFAULTS); cfg["depth"] = 1.0; cfg["sleep_moves"] = 2
+        cap = {}
+        orig = llm.complete
+        llm.complete = lambda prompt, c, **k: (cap.__setitem__("p", prompt),
+                                               '{"recap":"Wren studied the ward by candlelight.","resolved":[]}')[1]
+        try:
+            sleep.advance(cfg, camp / "world", camp / "threads.json")
+        finally:
+            llm.complete = orig
+        self.assertIn("Wren wants to escape the college", cap["p"])    # the agenda, not a flat step
+        self.assertIn("copied a warded page", cap["p"])                # its blessed history continues the arc
+
     def test_sleep_moves_zero_disables_npc_moves(self):
         camp = _camp()
         canon.write_node(camp / "world", "Dockhand", "a weary dockhand", {"kind": "character", "wants": "to leave"})

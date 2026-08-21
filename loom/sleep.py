@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from . import threads, canon, llm, state, npc, retrieve, episodic, transcript
+from . import threads, canon, llm, state, npc, retrieve, episodic, transcript, salience, agenda
 from . import prompt_security as sec
 
 _JSON_RE = re.compile(r"\{[\s\S]*\}")
@@ -55,27 +55,38 @@ def advance(cfg, world, threads_path):
     # the world's PEOPLE move too: a bounded, depth-scaled set of characters with a want each take a
     # small in-character step toward it while the player is away (grounded, propose-only, and — unlike
     # clocks — they do NOT resolve their relational thread; that dramatic payoff stays for live play).
+    _sp = Path(threads_path).parent / "state.json"          # decay reads salience (state) + recency (transcript)
+    _tp = Path(threads_path).parent / "transcript.jsonl"
     moves = []
     sm = float(cfg.get("sleep_moves", 2))
     if depth > 0 and sm > 0:                             # sleep_moves 0 → clocks-only sleep (off-switch)
         n = max(1, round(depth * sm))
-        ds = npc.drives(world)
-        ds.sort(key=lambda d: not d[1].tension)          # tensioned drives first (more dramatic); stable
-        moves = [(name, m) for name, m, _e in ds[:n]]
+        tiers = salience.tiers_by_name(world, _tp, _sp)
+        # cast by PERSONHOOD (char_rung), leads first — so a lead CONTINUES its arc across sleep instead
+        # of a flat, amnesiac step (was: sorted by raw tension). A walk-on still moves, but last.
+        scored = sorted(npc.drives(world), key=lambda d: -salience.char_rung(tiers.get(d[0], "side"), depth))
+        moves = [(name, m, salience.char_rung(tiers.get(name, "side"), depth)) for name, m, _e in scored[:n]]
 
-    report = {"beats": beats, "due": [t.id for t in due], "moves": [name for name, _m in moves],
+    report = {"beats": beats, "due": [t.id for t in due], "moves": [name for name, _m, _r in moves],
               "recap": "", "resolved": [], "threads": th, "pending": bool(due or moves)}
     if not report["pending"]:
         return report
+    thread_list = threads.load(threads_path)             # relational threads, for the agenda read
+
+    def _mover_item(name, m, rung):
+        if salience.has_agenda(rung):
+            ag = agenda.line(name, m, thread_list, _sp, rung)   # goal + status + BLESSED memory (goal-safe)
+            if ag:
+                return "- " + ag + " They take a step toward it tonight."
+        return f"- {name}, who {m.because}, takes a small step toward it"
+
     items = [f"- {t.question}" for t in due]
-    items += [f"- {name}, who {m.because}, takes a small step toward it" for name, m in moves]
+    items += [_mover_item(name, m, rung) for name, m, rung in moves]
     items_text = "\n".join(items)
     # ground the recap in canon RELEVANT to who/what moved this sleep — not an alphabetical slice of
     # everything (the same 1500-char dump that let the world round free-associate false history)
-    move_names = [name for name, _m in moves]
-    query = " ".join([t.question for t in due] + move_names + [m.because for _n, m in moves])
-    _sp = Path(threads_path).parent / "state.json"          # decay reads salience (state) + recency (transcript)
-    _tp = Path(threads_path).parent / "transcript.jsonl"
+    move_names = [name for name, _m, _r in moves]
+    query = " ".join([t.question for t in due] + move_names + [m.because for _n, m, _r in moves])
     canon_text = retrieve.grounded_context(world, cfg, query, anchors=move_names,
                                            tpath=_tp, spath=_sp) or "(no canon yet)"
     ccfg = dict(cfg)
