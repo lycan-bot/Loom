@@ -4,7 +4,7 @@ injected, and a high-rung focal character DELIBERATES before acting. Offline (mo
 import tempfile
 import unittest
 from pathlib import Path
-from loom import worldturn, canon, episodic, config, llm
+from loom import worldturn, canon, episodic, config, llm, narrate
 
 
 def _camp():
@@ -116,6 +116,32 @@ class AgencyIntegrationTest(unittest.TestCase):
         self.assertEqual([p for p in calls if "state your INTENT" in p], [])   # no deliberation
         beat_prompt = next(p for p in calls if "THIS ROUND" in p)
         self.assertNotIn("Their pursuit is", beat_prompt)     # the agenda layer is the agency marker, absent here
+
+
+class RemembersYouTest(unittest.TestCase):
+    """R2: an in-scene NPC's BLESSED memory of the player is surfaced to the narrator, rung-gated."""
+
+    def _scene(self, camp):
+        w = camp / "world"
+        canon.write_node(w, "Kess", "the player", {"kind": "character", "player": "true"})
+        canon.write_node(w, "Wren", "a cadet", {"kind": "character", "importance": "main"})
+        sp, tp = camp / "state.json", camp / "transcript.jsonl"
+        episodic.record(sp, [{"what": "Wren gave Kess the sealed key", "who": ["Wren", "Kess"]}], entry_start=1, source="play")
+        wren = canon.read_node(w, "Wren"); wren["score"] = 1.0     # as retrieve returns an in-scene match
+        kess = canon.read_node(w, "Kess"); kess["score"] = 1.0
+        return w, tp, sp, [wren, kess]
+
+    def test_in_scene_npc_remembers_the_player(self):
+        camp = _camp(); w, tp, sp, nodes = self._scene(camp)
+        cfg = dict(config.DEFAULTS); cfg["depth"] = 1.0
+        cl = narrate._remembers_you_clause(nodes, w, tp, sp, cfg)
+        self.assertIn("Wren remembers of you", cl)
+        self.assertIn("gave Kess the sealed key", cl)
+
+    def test_silent_at_depth_zero(self):
+        camp = _camp(); w, tp, sp, nodes = self._scene(camp)
+        cfg = dict(config.DEFAULTS); cfg["depth"] = 0.0
+        self.assertEqual(narrate._remembers_you_clause(nodes, w, tp, sp, cfg), "")   # off → byte-identical
 
 
 if __name__ == "__main__":

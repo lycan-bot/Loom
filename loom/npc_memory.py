@@ -35,6 +35,19 @@ def _acts(row, name_norm) -> bool:
     return re.search(r"\b" + re.escape(name_norm) + r"\b", _norm(row.get("what"))) is not None
 
 
+def _rank(rows, q, k):
+    """Newest-k, or BM25-ranked when `q` is given — the shared read logic for recall()/shared()."""
+    if not rows:
+        return []
+    if q:
+        from . import retrieve
+        docs = [{"name": str(i), "body": (str(e.get("what", "")) + " " + str(e.get("when", ""))).strip()}
+                for i, e in enumerate(rows)]
+        by_i = {str(i): e for i, e in enumerate(rows)}
+        return [by_i[nm] for nm, sc in retrieve._bm25(q, docs)[:k] if sc > 0 and nm in by_i]
+    return rows[-k:]                                       # the k most recent (episodic is oldest-first)
+
+
 def recall(spath, npc_name, q="", k=3, blessed_only=True) -> list[dict]:
     """The NPC's own memory: the beats it acted in — newest-first, or BM25-ranked when `q` is given.
     `blessed_only` (the default, and REQUIRED for goal-affecting reads) excludes source='world' improv,
@@ -46,15 +59,20 @@ def recall(spath, npc_name, q="", k=3, blessed_only=True) -> list[dict]:
     rows = [e for e in episodic.entries(spath) if _acts(e, name)]
     if blessed_only:
         rows = [e for e in rows if e.get("source") in _BLESSED]
-    if not rows:
+    return _rank(rows, q, k)
+
+
+def shared(spath, npc_name, other_name, q="", k=3, blessed_only=True) -> list[dict]:
+    """An NPC's memory of a SPECIFIC other (the player, or another NPC): the beats where BOTH acted /
+    were named. This is how a character 'remembers you' — grounded in what actually passed between them.
+    Blessed-only by default (goal-safe). Empty when they share no history."""
+    a, b = _norm(npc_name), _norm(other_name)
+    if not a or not b or a == b or k <= 0:
         return []
-    if q:
-        from . import retrieve
-        docs = [{"name": str(i), "body": (str(e.get("what", "")) + " " + str(e.get("when", ""))).strip()}
-                for i, e in enumerate(rows)]
-        by_i = {str(i): e for i, e in enumerate(rows)}
-        return [by_i[nm] for nm, sc in retrieve._bm25(q, docs)[:k] if sc > 0 and nm in by_i]
-    return rows[-k:]                                       # the k most recent (episodic is oldest-first)
+    rows = [e for e in episodic.entries(spath) if _acts(e, a) and _acts(e, b)]
+    if blessed_only:
+        rows = [e for e in rows if e.get("source") in _BLESSED]
+    return _rank(rows, q, k)
 
 
 def clause(spath, npc_name, q="", k=3, blessed_only=True) -> str:

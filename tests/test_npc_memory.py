@@ -87,6 +87,32 @@ class PlayedBeatWhoTest(unittest.TestCase):
         self.assertEqual(len(episodic.entries(sp)), 1)               # who is optional; the beat still lands
 
 
+class SharedTest(unittest.TestCase):
+    """R2: an NPC's memory of a specific OTHER (the player) — the beats where BOTH acted."""
+
+    def _seed(self, sp):
+        episodic.record(sp, [{"what": "Wren struck a bargain with Kess", "who": ["Wren", "Kess"]}], entry_start=1, source="play")
+        episodic.record(sp, [{"what": "Wren slipped away alone", "who": ["Wren"]}], entry_start=2, source="world")
+        episodic.record(sp, [{"what": "Wren and Kess argued at the gate", "who": ["Wren", "Kess"]}], entry_start=3, source="play")
+        episodic.record(sp, [{"what": "Kess wandered the docks", "who": ["Kess"]}], entry_start=4, source="play")
+
+    def test_only_beats_they_share(self):
+        camp = _camp(); sp = camp / "state.json"; self._seed(sp)
+        got = npc_memory.shared(sp, "Wren", "Kess", k=10, blessed_only=True)
+        self.assertEqual([e["what"] for e in got],
+                         ["Wren struck a bargain with Kess", "Wren and Kess argued at the gate"])
+
+    def test_blessed_only_excludes_shared_improv(self):
+        camp = _camp(); sp = camp / "state.json"
+        episodic.record(sp, [{"what": "Wren imagined meeting Kess", "who": ["Wren", "Kess"]}], entry_start=1, source="world")
+        self.assertEqual(npc_memory.shared(sp, "Wren", "Kess", k=5, blessed_only=True), [])
+
+    def test_self_and_stranger_return_nothing(self):
+        camp = _camp(); sp = camp / "state.json"; self._seed(sp)
+        self.assertEqual(npc_memory.shared(sp, "Wren", "Wren", k=5), [])       # no memory of oneself-as-other
+        self.assertEqual(npc_memory.shared(sp, "Wren", "Nobody", k=5), [])     # no shared history
+
+
 class ClauseTest(unittest.TestCase):
     def test_clause_marks_improv_unconfirmed(self):
         camp = _camp(); sp = camp / "state.json"
