@@ -111,6 +111,7 @@
   <a class="mini" style="margin-left:14px" onclick="editPlayer()" title="Your character in this world">You</a>
   <a class="mini" style="margin-left:12px" onclick="genWorld()" title="Roll a new world from a prompt">✦ Generate</a>
   <a class="mini" style="margin-left:12px" onclick="openOracle()" title="Oracle — out-of-character assistant & world-craft">◍ Oracle</a>
+  <a class="mini" style="margin-left:12px" onclick="showWorld()" title="World state — tracked object/place facts">🌍</a>
   <a class="mini" style="margin-left:12px" onclick="editSettings()" title="Depth, world round, dice">⚙</a>
   <span class="meta" style="margin-left:auto"><span class="dot" id="mdot"></span><span id="model">…</span></span>
 </header>
@@ -407,6 +408,7 @@ async function editSettings(){
   $("reader").innerHTML=`<div class="edit"><h2>⚙ Session</h2>`+
     `<label>realness depth (mirror → other)</label><select id="s_depth">`+opt(0,"0 · mirror (the world agrees)")+opt(0.5,"0.5 · in between")+opt(1,"1 · other (the world resists)")+`</select>`+
     `<label style="display:block;margin-top:8px"><input type="checkbox" id="s_world" ${c.world_rounds?"checked":""}> show the world round each turn (major NPCs take turns)</label>`+
+    `<label style="display:block"><input type="checkbox" id="s_worldstate" ${c.world_state?"checked":""}> world state — track object/place facts (a door locked, who holds an item) and ground the story on them</label>`+
     `<label style="display:block"><input type="checkbox" id="s_mech" ${c.mechanics?"checked":""}> dice — an impartial d20 on uncertain actions</label>`+
     `<label style="display:block"><input type="checkbox" id="s_tone" ${c.tone_steer?"checked":""}> dynamic tone — the narrator's register follows the scene (needs the tone vector served)</label>`+
     `<label style="display:block"><input type="checkbox" id="s_stream" ${c.stream?"checked":""}> stream narration — the story appears word by word as it's written</label>`+
@@ -420,7 +422,7 @@ async function editSettings(){
 }
 async function saveSettings(){
   await fetch("/api/config",{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({depth:parseFloat($("s_depth").value),world_rounds:$("s_world").checked,mechanics:$("s_mech").checked,tone_steer:$("s_tone").checked,stream:$("s_stream").checked,scene_memory:$("s_mem").checked,salience_decay:$("s_decay").checked,memory_every:parseInt($("s_memevery").value),auto_consolidate:$("s_autocon").checked,auto_consolidate_apply:$("s_autocanon").checked,consolidate_every:parseInt($("s_conevery").value)})});
+    body:JSON.stringify({depth:parseFloat($("s_depth").value),world_rounds:$("s_world").checked,world_state:$("s_worldstate").checked,mechanics:$("s_mech").checked,tone_steer:$("s_tone").checked,stream:$("s_stream").checked,scene_memory:$("s_mem").checked,salience_decay:$("s_decay").checked,memory_every:parseInt($("s_memevery").value),auto_consolidate:$("s_autocon").checked,auto_consolidate_apply:$("s_autocanon").checked,consolidate_every:parseInt($("s_conevery").value)})});
   CFG.stream=$("s_stream").checked;
   addTurn("sys","session settings applied.");await loadState();
 }
@@ -689,6 +691,22 @@ async function reviewPending(){
   const w=(r.written&&r.written.nodes)||[];
   addTurn("sys",`blessed ${w.length} canon update(s) into the world.`);
   await loadState();
+}
+async function showWorld(){
+  // the symbolic-object layer: the world's tracked concrete state (a door locked, who holds an item),
+  // grouped by subject. Read-only here — the diode (consolidation) writes it; the operator edits via API.
+  let j;
+  try{ j=await (await fetch("/api/world")).json(); }
+  catch(e){ addTurn("sys","⚠ couldn't load world state — is the loom server running?"); return; }
+  _detailMode("world state");
+  const subs=j.subjects||[];
+  let body;
+  if(!j.enabled){ body=`<div class="kind">the world-state layer is OFF — turn it on in ⚙ Session to track object/place facts and ground the story on them.</div>`; }
+  else if(!subs.length){ body=`<div class="kind">no world facts tracked yet — they accrue as the story settles concrete state (a locked door, a burned letter, who holds an item), folded in at consolidation.</div>`; }
+  else { body=subs.map(g=>`<div style="padding:9px 0;border-top:1px solid var(--weft,#2d2740)"><b>${esc(g.subject)}</b>`+
+      (g.facts||[]).map(f=>`<div style="font-size:12.5px;margin-top:2px;color:var(--muted)">${esc(f.attribute)}: <span style="color:var(--ink,#e8e3f0)">${esc(f.value)}</span></div>`).join("")+
+      `</div>`).join(""); }
+  $("reader").innerHTML=`<h2>world state</h2><div class="kind">concrete things true right now — the tracked truth the narrator can't contradict. It changes only through consolidation (the diode) or your edit.</div>`+body;
 }
 async function reviewReversals(){
   // contradiction-repair: a character's feeling FLIPPED sign; the auto-fold held it rather than

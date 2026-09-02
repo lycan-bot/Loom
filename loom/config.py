@@ -46,6 +46,7 @@ DEFAULTS = {
     "sleep_moves":      2,     # how many characters take a step toward their want per sleep (depth-scaled)
     "world_rounds":     False, # the toggle: run + SHOW a world round during play (off → sleep carries it)
     "world_cadence":    3,      # when the toggle is on, the world takes a round every N player turns
+    "world_state":      False,  # the symbolic-object layer: ground narration on tracked object/world facts (off → byte-identical)
     "tone_steer":       False,  # dynamic tone: send a per-turn control-vector scale (needs the tone vector served)
     "stream":           False,  # stream narration token-by-token (SSE); guard+referee still finalize authoritatively
     "scene_memory":     True,   # keep an advisory 'story so far' in context so details don't scroll out (never canon)

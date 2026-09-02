@@ -12,6 +12,7 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from . import config, canon, state, transcript, narrate, consolidate, llm, threads, imagine, guard, character, sleep, worldturn, player, generate, setting, undo, reputation, salience, assistant, recall, extract, episodic, compact, provenance, npc, agenda, npc_memory, mood
+from . import world as world_state    # aliased: `world` is the canon-dir Path local in each handler
 
 STATIC = Path(__file__).resolve().parent / "static"
 
@@ -153,6 +154,12 @@ def make_handler(cfg: dict):
                 # contradiction-repair: the disposition FLIPS the auto-fold held for the operator's
                 # decision (it never overwrites an established feeling on the archivist's say-so)
                 return self._send(200, {"reversals": consolidate.pending_reversals(spath)})
+            if u.path == "/api/world":
+                # the symbolic-object layer: the world's tracked concrete state (a door locked, who holds an
+                # item), grouped by subject. Pure read; the narrator grounds on this but never writes it.
+                facts = world_state.load(spath)
+                return self._send(200, {"enabled": bool(cfg.get("world_state")),
+                                        "subjects": world_state.by_subject(facts), "count": len(facts)})
             if u.path == "/api/check":
                 fs = guard.check(world, spath.parent / "threads.json", tpath=tpath, spath=spath)
                 return self._send(200, {"findings": [{"severity": f.severity, "kind": f.kind,
@@ -177,6 +184,7 @@ def make_handler(cfg: dict):
                 return self._send(200, {"depth": cfg.get("depth", 0.0), "mechanics": bool(cfg.get("mechanics")),
                                         "world_rounds": bool(cfg.get("world_rounds")),
                                         "world_cadence": cfg.get("world_cadence", 3),
+                                        "world_state": bool(cfg.get("world_state")),
                                         "tone_steer": bool(cfg.get("tone_steer")),
                                         "stream": bool(cfg.get("stream")),
                                         "scene_memory": bool(cfg.get("scene_memory")),
@@ -428,6 +436,23 @@ def make_handler(cfg: dict):
                 player.save(world, name, role=body.get("role") or "", description=body.get("description") or "",
                             wants=body.get("wants") or "", location=body.get("location") or "")
                 return self._send(200, {"ok": True, "player": player.card(world)})
+            if u.path == "/api/world":
+                # the operator's hand on world state — always wins (set or retract a tracked fact). A
+                # deliberate operator edit, logged old->new like any change; this is the override the diode
+                # doctrine reserves for the human ("which contradicting fact wins → the operator, always").
+                subj = (body.get("subject") or "").strip()
+                attr = (body.get("attribute") or "").strip()
+                if not subj or not attr:
+                    return self._send(400, {"error": "subject and attribute required"})
+                if body.get("retract"):
+                    removed = world_state.remove(spath, subj, attr)
+                    return self._send(200, {"removed": removed, "subjects": world_state.by_subject(world_state.load(spath))})
+                val = (body.get("value") or "").strip()
+                if not val:
+                    return self._send(400, {"error": "value required (or set retract=true)"})
+                delta = world_state.set_fact(spath, subj, attr, val, source="operator")
+                return self._send(200, {"applied": delta["applied"], "old": delta["old"],
+                                        "subjects": world_state.by_subject(world_state.load(spath))})
             if u.path == "/api/config":
                 up = {}
                 if "depth" in body:
@@ -439,6 +464,8 @@ def make_handler(cfg: dict):
                     up["mechanics"] = bool(body["mechanics"])
                 if "world_rounds" in body:
                     up["world_rounds"] = bool(body["world_rounds"])
+                if "world_state" in body:
+                    up["world_state"] = bool(body["world_state"])       # the symbolic-object grounding layer on/off
                 if "tone_steer" in body:
                     up["tone_steer"] = bool(body["tone_steer"])
                 if "stream" in body:

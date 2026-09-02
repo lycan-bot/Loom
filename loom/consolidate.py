@@ -12,6 +12,7 @@ import json
 import re
 from pathlib import Path
 from . import llm, canon, state, threads, reputation, transcript, inbox, episodic, provenance
+from . import world as world_layer    # aliased: `world` is the canon-dir Path param in apply()/etc.
 
 _JSON_RE = re.compile(r"\{[\s\S]*\}")
 
@@ -131,6 +132,13 @@ def _real_key(k) -> bool:
     return bool(s) and s not in _PLACEHOLDER_KEYS and "<" not in s and ">" not in s
 
 
+def _no_template(s) -> bool:
+    """True unless the string is a schema-template echo ('<...>'). Unlike _real_key it does NOT blocklist
+    'key'/'value'/'fact' — for a WORLD fact those are legitimate object names ('the key'), not placeholders."""
+    s = str(s)
+    return "<" not in s and ">" not in s
+
+
 def _normalize(proposals: dict) -> dict:
     """Coerce grammar-valid-but-unshaped model output into clean, typed structures so the write
     loop can never crash on a bad type or leave a partial commit. Every malformed field is
@@ -196,6 +204,16 @@ def _normalize(proposals: dict) -> dict:
                    if provenance._norm(w) and re.search(r"\b" + re.escape(provenance._norm(w)) + r"\b", low_what)]
             events.append({"what": what, "when": _s(ev.get("when")).strip(), "who": who})
 
+    world_facts = []
+    for wf in _dicts(proposals.get("world")):
+        subj = _s(wf.get("subject")).strip()
+        attr = _s(wf.get("attribute")).strip()
+        val = _s(wf.get("value")).strip()
+        # a real fact needs all three; drop only a schema-template echo ('<...>') — NOT a real object named
+        # 'key'/'value' (those are legitimate world subjects, unlike a state fact-name)
+        if subj and attr and val and _no_template(subj) and _no_template(attr) and _no_template(val):
+            world_facts.append({"subject": subj, "attribute": attr, "value": val})
+
     resolved_raw = proposals.get("threads_resolved")
     return {
         "nodes": nodes,
@@ -205,6 +223,7 @@ def _normalize(proposals: dict) -> dict:
         "character_updates": updates,
         "reputation": rep,
         "events": events,
+        "world": world_facts,
     }
 
 
@@ -256,11 +275,14 @@ Respond with ONE json object:
   "character_updates": [{"name": "an existing character", "disposition": "how they now feel toward the player, ONLY if it clearly shifted this session", "location": "the place they are now, ONLY if they moved this session"}],
   "reputation": [{"who": "a faction, group, or notable person", "delta": -1, "because": "the DEED this session that moved their regard for the player (a small integer -3..3; negative = worse)"}],
   "events":  [{"what": "a concrete thing that HAPPENED this session — a beat worth remembering later, in past tense", "when": "(optional) the in-fiction time it happened ('the next morning', 'that night', 'days later') — ONLY if the prose states it", "who": ["the character name(s) who ACTED in this beat — the player and/or the NPCs involved, EXACTLY as named in canon"]}],
+  "world":   [{"subject": "a concrete THING or place whose state CHANGED this session (an object, a door, an item)", "attribute": "state|condition|location|holder|owner|contains", "value": "what is now TRUE of it (e.g. 'locked', 'burned', 'Wren', 'the vault')"}],
   "summary": "one sentence on what changed"
 }
 Only open a thread for a genuine NEW dramatic question the session actually raised; only resolve \
 one it truly closed. In `events`, list what actually happened (grounded in the log, not invented); \
-give `when` only if the prose says so. If a section has nothing, use an empty list.
+give `when` only if the prose says so. In `world`, record only a concrete OBJECT/place state that \
+CHANGED and is now settled truth (a locked door, a burned letter, who holds an item) — not a feeling, \
+not an event, only the durable current state of a thing. If a section has nothing, use an empty list.
 
 PLAY LOG:
 %s
@@ -288,6 +310,8 @@ _SCHEMA = {
         "events": {"type": "array", "items": {"type": "object", "properties": {
             "what": {"type": "string"}, "when": {"type": "string"},
             "who": {"type": "array", "items": {"type": "string"}}}}},
+        "world": {"type": "array", "items": {"type": "object", "properties": {
+            "subject": {"type": "string"}, "attribute": {"type": "string"}, "value": {"type": "string"}}}},
         "summary": {"type": "string"},
     },
 }
@@ -321,7 +345,7 @@ def propose(cfg: dict, session_lines: list[dict], existing_threads=None, world=N
         raise ValueError(f"no JSON object in consolidation output: {raw[:200]}")
     data = _loads_lenient(m.group(0))
     for key, default in (("nodes", []), ("state", {}), ("threads_new", []), ("threads_resolved", []),
-                         ("character_updates", []), ("reputation", []), ("events", []), ("summary", "")):
+                         ("character_updates", []), ("reputation", []), ("events", []), ("world", []), ("summary", "")):
         data.setdefault(key, default)
     return data
 
@@ -345,7 +369,7 @@ def apply(proposals: dict, world: Path, state_path: Path, approve,
     p = _normalize(proposals)
     written: dict[str, list] = {"nodes": [], "state": [], "threads": [], "resolved": [],
                                 "dispositions": [], "locations": [], "reputation": [], "events": [],
-                                "held_reversals": []}
+                                "world": [], "held_reversals": []}
     held_revs = []               # functional-field FLIPS the auto-drain proposed w/o operator authority → hold
     for node in p["nodes"]:
         name, body, fields = node["name"], node["body"], node["fields"]
@@ -393,6 +417,25 @@ def apply(proposals: dict, world: Path, state_path: Path, approve,
             st[key] = val
             written["state"].append(key)
             changed = True
+    # the symbolic-object layer: settle concrete world state (a door locked, an item's holder) into the
+    # structured _world store. Gated per fact by approve("world", ...); a CHANGE is logged old->new via
+    # provenance (never a blind clobber) exactly like a state fact. world.upsert is PURE, so this rides the
+    # SAME batched state.save below (calling world.set_fact here would clobber that save). A concrete state
+    # transition, not a valence flip — it supersedes with an audit row; it is not held like a disposition.
+    for wf in p["world"]:
+        subj, attr, val = wf["subject"], wf["attribute"], wf["value"]
+        if not approve("world", subj, wf):
+            continue
+        new_facts, delta = world_layer.upsert(st.get(world_layer._KEY), subj, attr, val, since=ts, source="consolidate")
+        if not delta["applied"]:
+            continue
+        if delta["old"] is not None:                      # a CHANGE (not a first assertion) → audit old->new
+            provenance.log(state_path, [{"kind": "world", "name": subj, "field": attr, "old": delta["old"],
+                                         "new": delta["new"], "entry_start": ts, "entry_end": te,
+                                         "source": "consolidate", "reversal": delta["reversal"]}])
+        st[world_layer._KEY] = new_facts
+        written["world"].append(subj)
+        changed = True
     # reputation: shift each blessed standing (the diode gates each deed) and log the deed that moved
     # it — stored in the same state under _rep so it commits atomically with the rest of the state.
     # A deed already folded (its window-keyed id is in _rep_applied) is skipped: additive apply_delta

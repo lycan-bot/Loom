@@ -76,6 +76,12 @@ class WebTest(unittest.TestCase):
         self.assertIn("reversals", d)
         self.assertIsInstance(d["reversals"], list)
 
+    def test_world_endpoint_shape(self):
+        d = self._get("/api/world")                          # the symbolic-object layer (read-only)
+        self.assertIn("enabled", d)
+        self.assertIsInstance(d["subjects"], list)
+        self.assertIsInstance(d["count"], int)
+
     def test_why_returns_the_provenance_ledger(self):
         d = self._get("/api/why")                    # whole ledger (read-only)
         self.assertIn("changes", d)

@@ -24,6 +24,7 @@ Usage:
 from __future__ import annotations
 import sys
 from . import config, narrate, consolidate, seal, transcript, canon, state, llm, threads, npc, imagine, guard, sleep, worldturn, generate, undo, reputation, recall, extract, episodic, compact, provenance, character
+from . import world as world_state    # aliased: `world` names the canon-dir Path throughout this module
 
 
 def _paths(cfg):
@@ -318,6 +319,28 @@ def cmd_world_show(cfg, arg):
     print(f"world rounds {'SHOWN each turn during play' if on else 'hidden (they still run in the background)'}.")
 
 
+def cmd_facts(cfg):
+    """The symbolic-object layer: the world's tracked concrete state — objects/places and what is true of
+    them right now, grouped by subject. Pure read (the narrator grounds on this; only the diode writes it)."""
+    _, _world, spath = _paths(cfg)
+    facts = world_state.load(spath)
+    if not facts:
+        tip = "" if cfg.get("world_state") else "  (the layer is OFF — 'loom world-state on' to ground on it.)"
+        print("no world facts tracked yet." + tip)
+        return
+    print("world state (true right now)")
+    for grp in world_state.by_subject(facts):
+        print(f"  {grp['subject']}:")
+        for f in grp["facts"]:
+            print(f"    · {f['attribute']}: {f['value']}")
+
+
+def cmd_world_state(cfg, arg):
+    on = arg == "on"
+    config.save({"world_state": on})
+    print("world-state grounding " + ("ON — the narrator now grounds on tracked object facts." if on else "OFF."))
+
+
 def cmd_undo(cfg):
     tpath, _world, spath = _paths(cfg)
     print("↩ took back the last turn." if undo.undo(tpath, spath) else "nothing to undo.")
@@ -522,6 +545,10 @@ def main(argv=None):
         cmd_world(cfg)
     elif cmd == "world-show" and len(argv) > 1:
         cmd_world_show(cfg, argv[1])
+    elif cmd == "facts":
+        cmd_facts(cfg)
+    elif cmd == "world-state" and len(argv) > 1:
+        cmd_world_state(cfg, argv[1])
     elif cmd == "undo":
         cmd_undo(cfg)
     elif cmd == "reputation":
