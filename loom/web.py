@@ -71,6 +71,11 @@ def make_handler(cfg: dict):
                 th = threads.load(spath.parent / "threads.json")
                 st_all = state.load(spath)
                 rep = reputation.load(st_all)
+                # count the held pens off the already-loaded state (mirrors consolidate.pending /
+                # .pending_reversals exactly) rather than re-parsing state.json twice more per request
+                _pc, _pr = st_all.get("_pending_canon"), st_all.get("_pending_reversal")
+                n_pending_canon = len([n for n in _pc if isinstance(n, dict) and n.get("name")]) if isinstance(_pc, list) else 0
+                n_pending_rev = len([r for r in _pr if isinstance(r, dict) and r.get("name") and r.get("field")]) if isinstance(_pr, list) else 0
                 return self._send(200, {
                     "campaign": cfg["campaign"],
                     "model": cfg["llm_url"],
@@ -81,8 +86,8 @@ def make_handler(cfg: dict):
                     "steer": st_all.get("_steer", {}) if cfg.get("tone_steer") else {},
                     "unconsolidated": max(0, len(transcript.read_all(tpath)) - int(st_all.get("_consolidated", 0) or 0)),
                     "auto_consolidate": bool(cfg.get("auto_consolidate")),
-                    "pending_canon": len(consolidate.pending(spath)),   # canon parked by auto-fold, awaiting bless
-                    "pending_reversal": len(consolidate.pending_reversals(spath)),   # held feeling-flips awaiting a decision
+                    "pending_canon": n_pending_canon,   # canon parked by auto-fold, awaiting bless
+                    "pending_reversal": n_pending_rev,   # held feeling-flips awaiting a decision
                     "reputation": [{"who": w, "standing": int(e.get("standing", 0) or 0),
                                     "label": reputation.label(int(e.get("standing", 0) or 0)),
                                     "log": [s for s in (e.get("log") or []) if isinstance(s, str)]}

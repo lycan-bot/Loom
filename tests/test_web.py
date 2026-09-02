@@ -29,6 +29,22 @@ class WebTest(unittest.TestCase):
         d = self._get("/api/state")
         self.assertIn("campaign", d)
         self.assertIsInstance(d["canon"], list)
+        self.assertIsInstance(d["pending_canon"], int)       # counted off the already-loaded state, not a re-parse
+        self.assertIsInstance(d["pending_reversal"], int)
+        self.assertGreaterEqual(d["pending_reversal"], 0)
+
+    def test_onclick_escaping_is_centralized(self):
+        """XSS regression guard. Model/canon-authored names flow into onclick JS-strings inside double-quoted
+        attributes; a bare `.replace(/'/g,...)` escapes only the single quote, so a name carrying a `"` closes
+        the attribute and injects a live handler. Every such site must route through escJsAttr (which also
+        entity-escapes the `"`), so the ONLY hand-rolled single-quote escape left in the page is escJsAttr's own
+        definition — if a second one reappears, the class regressed."""
+        with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/", timeout=5) as r:
+            html = r.read().decode()
+        self.assertIn("const escJsAttr", html)                       # the centralized attribute+JS-string escaper
+        self.assertIn("&quot;", html)                                # esc/escJsAttr emit the double-quote entity
+        self.assertEqual(html.count("replace(/'/g"), 1,
+                         "a hand-rolled single-quote escape reappeared outside escJsAttr — the XSS class regressed")
 
     def test_worlds_lists_example(self):
         self.assertIn("example", self._get("/api/worlds")["campaigns"])

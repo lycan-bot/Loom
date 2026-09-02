@@ -155,7 +155,11 @@
 </div>
 <script>
 const KINDS={place:"#4ea1a1",character:"#6f8fd8",faction:"#d8a34e",event:"#d87a6a",lore:"#8a8f98"};
-const esc=s=>s.replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+// A value going INTO a JS single-quoted string INSIDE a double-quoted attribute (onclick="fn('${v}')"):
+// HTML-escape < > & and " (so a " can't close the attribute), then JS-escape \ and ' (so a ' can't close
+// the string). Closes the stored-XSS class where a canon/model-authored name carries a quote.
+const escJsAttr=s=>String(s==null?"":s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])).replace(/\\/g,"\\\\").replace(/'/g,"\\'").replace(/"/g,"&quot;");
 const $=id=>document.getElementById(id);
 let CFG={};        // cached session config (whether narration streams, etc.)
 let _active=null;  // name of the card currently shown in the detail pane
@@ -170,7 +174,7 @@ async function loadCards(){
     h+=`<div class="tier">${esc(t.label)}</div>`;
     for(const c of t.cards){
       const col=KINDS[c.kind]||KINDS.lore;
-      h+=`<div class="card" data-name="${esc(c.name)}" onclick="openNode('${c.name.replace(/'/g,"")}')">`+
+      h+=`<div class="card" data-name="${esc(c.name)}" onclick="openNode('${escJsAttr(c.name)}')">`+
          `<span class="cdot" style="background:${col}"></span>`+
          `<span class="cname">${esc(c.name)}</span>`+
          (c.overridden?`<span class="pin" title="pinned tier">📌</span>`:"")+
@@ -203,7 +207,7 @@ async function renderThreads(){
     for(const t of g){
       const pct=Math.round((t.readiness||0)*100), done=t.status==="resolved";
       h+=`<div class="qcard${done?" done":""}">`+
-         (done?"":`<a class="tctl" title="remove" onclick="delThread('${(t.id||'').replace(/'/g,"\\'")}')">✕</a>`)+
+         (done?"":`<a class="tctl" title="remove" onclick="delThread('${escJsAttr(t.id||'')}')">✕</a>`)+
          `<div class="qq">${esc(t.question)}</div>`+
          `<div class="qbar"><div class="qfill" style="width:${pct}%"></div></div>`+
          `<div class="qmeta">${esc(t.status)} · ${pct}%${(t.entities&&t.entities.length)?" · "+t.entities.map(esc).join(", "):""}</div>`+
@@ -227,7 +231,7 @@ async function renderMemories(){
   if(mem){h+=`<div class="memh">what the narrator holds in mind</div><div class="body" style="white-space:pre-wrap;font-size:12.5px;color:#cbc6bc">${esc(mem)}</div>`;}
   h+=`<div class="memh">what's true now</div>`+(facts?`<div class="facts">${facts}</div>`:`<span style="color:var(--muted);font-size:12px">nothing recorded yet</span>`);
   if(rep.length){h+=`<div class="memh">how the world regards you</div>`+rep.map(r=>{const col=r.standing>0?"#7fd18a":r.standing<0?"#d67f7f":"var(--muted)";return `<div style="font-size:12.5px"><b style="color:${col}">${esc(r.label)}</b> · ${esc(r.who)}</div>`;}).join("");}
-  if(events.length){h+=`<div class="memh">what's happened</div>`+events.map(n=>`<div class="ev" onclick="openNode('${n.name.replace(/'/g,"")}')"><span class="evk">event</span>${esc(n.name)}</div>`).join("");}
+  if(events.length){h+=`<div class="memh">what's happened</div>`+events.map(n=>`<div class="ev" onclick="openNode('${escJsAttr(n.name)}')"><span class="evk">event</span>${esc(n.name)}</div>`).join("");}
   if(resolved.length){h+=`<div class="memh">closed arcs</div>`+resolved.map(t=>`<div class="ev" style="cursor:default"><span class="evk">✓</span>${esc(t.question)}</div>`).join("");}
   // the two-clock timeline (episodic spine) — most recent beats, with their in-fiction / real-turn clock
   let tl=[];try{tl=(await (await fetch("/api/timeline")).json()).events||[];}catch(e){}
@@ -296,11 +300,12 @@ async function refreshWorld(){
 
 function mdToHtml(t){
   t=esc(t).replace(/\*\*(.+?)\*\*/g,"<b>$1</b>")
-          .replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g,(m,n,a)=>`<a onclick="openNode('${n.replace(/'/g,"")}')">${a||n}</a>`);
+          // n/a are already esc()'d by line above (quotes → entities), so the onclick arg is attribute-safe as-is
+          .replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g,(m,n,a)=>`<a onclick="openNode('${n}')">${a||n}</a>`);
   return t.split(/\n\s*\n/).map(p=>`<p>${p.replace(/\n/g,"<br>")}</p>`).join("");
 }
 
-function _eb(nm){const s=nm.replace(/'/g,"\\'");return `<div class="tctl"><a onclick="editNode('${s}')">edit</a> · <a onclick="delNode('${s}')">✕</a></div>`;}
+function _eb(nm){const s=escJsAttr(nm);return `<div class="tctl"><a onclick="editNode('${s}')">edit</a> · <a onclick="delNode('${s}')">✕</a></div>`;}
 function _fieldRows(f){f=f||{};const skip=new Set(["setting"]);
   const rows=Object.entries(f).filter(([k,v])=>v&&!skip.has(k)).map(([k,v])=>`<div class="crow"><span class="clabel">${esc(k)}</span> ${esc(String(v))}</div>`).join("");
   return rows?`<div style="margin:8px 0 12px">${rows}</div>`:"";}
@@ -332,14 +337,14 @@ function _xfields(kind,c,f){return kind==="character"?_charFields(c,f):kind==="l
 async function editNode(name){
   const n=name?await (await fetch("/api/node?name="+encodeURIComponent(name))).json():{name:"",kind:"lore",body:"",card:{},fields:{}};
   const c=n.card||{}, f=n.fields||{}, kinds=["lore","place","character","faction","event"];
-  const cancel=name?`openNode('${name.replace(/'/g,"\\'")}')`:"showContinuity()";
+  const cancel=name?`openNode('${escJsAttr(name)}')`:"showContinuity()";
   _detailMode(name?"editing · "+name:"new node");
   $("reader").innerHTML=`<div class="edit"><h2>${name?esc(name):"new node"}</h2>`+
     (name?"":_field("name","f_name","","input"))+
     `<label>kind</label><select id="f_kind">`+kinds.map(k=>`<option${k===n.kind?" selected":""}>${k}</option>`).join("")+`</select>`+
     `<div id="xfields">`+_xfields(n.kind,c,f)+`</div>`+
     _field("description","f_body",n.body||c.description||"","textarea")+
-    `<div class="row"><button onclick="saveNode('${(name||"").replace(/'/g,"\\'")}')">Save</button>`+
+    `<div class="row"><button onclick="saveNode('${escJsAttr(name||"")}')">Save</button>`+
     `<button class="ghost" onclick="${cancel}">Cancel</button></div></div>`;
   $("f_kind").onchange=()=>{$("xfields").innerHTML=_xfields($("f_kind").value,c,f);};
 }
@@ -444,7 +449,7 @@ async function renderReader(st){
   const inMotion=(st.threads||[]).filter(t=>t.status!=="dormant");
   const plan=inMotion.map(t=>{
     const pct=Math.round((t.readiness||0)*100);
-    return `<div class="thread"><a class="tctl" title="remove" onclick="delThread('${(t.id||'').replace(/'/g,"\\'")}')">✕</a>`+
+    return `<div class="thread"><a class="tctl" title="remove" onclick="delThread('${escJsAttr(t.id||'')}')">✕</a>`+
            `<div class="tq">${esc(t.question)}</div>`+
            `<div class="tbar"><div class="tfill" style="width:${pct}%"></div></div>`+
            `<div class="tstatus">${esc(t.status)} · ${pct}%</div></div>`;
@@ -488,7 +493,7 @@ async function loadGraph(){
   let s="";
   for(const l of links)s+=`<line class="edge" x1="${nodes[l.s].x}" y1="${nodes[l.s].y}" x2="${nodes[l.t].x}" y2="${nodes[l.t].y}"/>`;
   for(const n of nodes){const c=KINDS[n.kind]||KINDS.lore;
-    s+=`<g class="node" onclick="openNode('${n.name.replace(/'/g,"")}')"><circle cx="${n.x}" cy="${n.y}" r="${7+n.name.length*0.25}" fill="${c}"/>`+
+    s+=`<g class="node" onclick="openNode('${escJsAttr(n.name)}')"><circle cx="${n.x}" cy="${n.y}" r="${7+n.name.length*0.25}" fill="${c}"/>`+
        `<text x="${n.x+10}" y="${n.y+4}">${esc(n.name)}</text></g>`;}
   svg.innerHTML=s;
   $("worldcount").textContent=`${nodes.length} nodes`; $("worldcount").title=`${links.length} links`;
@@ -688,12 +693,14 @@ async function reviewPending(){
 async function reviewReversals(){
   // contradiction-repair: a character's feeling FLIPPED sign; the auto-fold held it rather than
   // overwrite an established feeling. bless = apply the flip · reject = keep the feeling.
-  const j=await (await fetch("/api/reversals")).json();
+  let j;
+  try{ j=await (await fetch("/api/reversals")).json(); }
+  catch(e){ addTurn("sys","⚠ couldn't load held feeling-flips — is the loom server running?"); return; }
   const rs=j.reversals||[];
   if(!rs.length){addTurn("sys","no held feeling-flips to decide.");return;}
   _detailMode("held feeling-flips");
   const rows=rs.map(r=>{
-    const nm=(r.name||"").replace(/'/g,"\\'"), fd=(r.field||"disposition").replace(/'/g,"\\'");
+    const nm=escJsAttr(r.name||""), fd=escJsAttr(r.field||"disposition");
     return `<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:11px 0;border-top:1px solid var(--weft,#2d2740)">`+
       `<div style="min-width:0"><b>${esc(r.name)}</b> <span style="color:var(--muted);font-size:11px">${esc(r.field)}</span>`+
       `<div style="font-size:12.5px;margin-top:2px">${esc(r.old)} <span style="color:#e0a54a">→</span> ${esc(r.new)}</div></div>`+
@@ -703,8 +710,10 @@ async function reviewReversals(){
   $("reader").innerHTML=`<h2>held feeling-flips</h2><div class="kind">a character's feeling flipped sign — held rather than silently overwritten. bless applies it; reject keeps the established feeling.</div>`+rows;
 }
 async function decideReversal(name,field,bless){
-  const r=await (await fetch("/api/reversals/apply",{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({name,field,bless})})).json();
+  let r;
+  try{ r=await (await fetch("/api/reversals/apply",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({name,field,bless})})).json(); }
+  catch(e){ addTurn("sys","⚠ couldn't reach the loom server — the decision wasn't saved."); return; }
   addTurn("sys",(bless?(r.applied?"↩ flip applied — ":"nothing to apply for "):"✗ flip rejected; the feeling stands — ")+name);
   await loadState();
   if((r.reversals||[]).length) reviewReversals(); else showContinuity();
