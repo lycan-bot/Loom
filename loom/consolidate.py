@@ -327,7 +327,7 @@ def propose(cfg: dict, session_lines: list[dict], existing_threads=None, world=N
 
 
 def apply(proposals: dict, world: Path, state_path: Path, approve,
-          deed_window=None, watermark=None) -> dict:
+          deed_window=None, watermark=None, hold_reversals=False) -> dict:
     """Write approved proposals to canon + state. `approve(kind, name, payload) -> bool` is
     called for EVERY change; nothing is written unless it returns True — the diode, the operator's
     hand between improv and canon.
@@ -344,7 +344,9 @@ def apply(proposals: dict, world: Path, state_path: Path, approve,
     """
     p = _normalize(proposals)
     written: dict[str, list] = {"nodes": [], "state": [], "threads": [], "resolved": [],
-                                "dispositions": [], "locations": [], "reputation": [], "events": []}
+                                "dispositions": [], "locations": [], "reputation": [], "events": [],
+                                "held_reversals": []}
+    held_revs = []               # functional-field FLIPS the auto-drain proposed w/o operator authority → hold
     for node in p["nodes"]:
         name, body, fields = node["name"], node["body"], node["fields"]
         if not approve("node", name, node):
@@ -469,14 +471,25 @@ def apply(proposals: dict, world: Path, state_path: Path, approve,
         # so a relocation is disclosed and independently refusable, not smuggled in under a feeling
         if cu["disposition"] and approve("disposition", name, cu["disposition"]):
             old = str(fm.get("disposition", "")).strip()
-            if old and old != cu["disposition"]:         # a feeling SHIFTED — hold old→new, never clobber blind
-                provenance.log(state_path, [{"kind": "character", "name": name, "field": "disposition",
-                                             "old": old, "new": cu["disposition"], "entry_start": ts, "entry_end": te,
-                                             "source": "consolidate",
-                                             "reversal": provenance.is_reversal("disposition", old, cu["disposition"])}])
-            fm["disposition"] = cu["disposition"]
-            written["dispositions"].append(name)
-            touched = True
+            held = False
+            if old and old != cu["disposition"]:         # a feeling SHIFTED
+                if hold_reversals and provenance.is_reversal("disposition", old, cu["disposition"]):
+                    # CONTRADICTION-REPAIR: a valence FLIP (warm↔hostile) proposed by the auto-drain, which
+                    # has no operator authority — HOLD it for the operator instead of silently overwriting an
+                    # established feeling (a functional relation; a genuine contradiction, not a progression).
+                    held_revs.append({"name": name, "field": "disposition", "old": old, "new": cu["disposition"],
+                                      "entry_start": ts, "entry_end": te, "source": "consolidate"})
+                    written["held_reversals"].append(name)
+                    held = True
+                else:                                    # a progression (warm→warmer) or an authorised path → log + apply
+                    provenance.log(state_path, [{"kind": "character", "name": name, "field": "disposition",
+                                                 "old": old, "new": cu["disposition"], "entry_start": ts, "entry_end": te,
+                                                 "source": "consolidate",
+                                                 "reversal": provenance.is_reversal("disposition", old, cu["disposition"])}])
+            if not held:
+                fm["disposition"] = cu["disposition"]
+                written["dispositions"].append(name)
+                touched = True
         # a location MUST resolve to a real place node — never write the archivist's free-text clause
         # (that corruption is what put Wren 'elsewhere with Fáelán' and broke co-location)
         place = _resolve_place(world, cu["location"]) if cu["location"] else None
@@ -491,6 +504,8 @@ def apply(proposals: dict, world: Path, state_path: Path, approve,
             touched = True
         if touched:
             canon.write_node(world, name, node["body"], fm)
+    if held_revs:                                    # contradiction-repair: park the held flips for the operator
+        queue_reversal(state_path, held_revs)
     return written
 
 
@@ -558,6 +573,62 @@ def apply_pending(world: Path, spath, approve=None) -> dict:
     return written
 
 
+_REVERSAL_CAP = 20            # keep the last N held reversals (bounded, like the deed ledger)
+
+
+def queue_reversal(spath, reversals) -> None:
+    """Park held functional-field REVERSALS — contradictions the AUTO-drain proposed without operator
+    authority (a disposition FLIP against an established feeling). The diode's holding pen for
+    contradictions: the world never silently overwrites an established value on the archivist's say-so;
+    the operator blesses or rejects. Dedup by (name, field): the latest proposed flip wins the slot."""
+    reversals = [r for r in (reversals or []) if isinstance(r, dict) and r.get("name") and r.get("field")]
+    if not reversals:
+        return
+    st = state.load(spath)
+    pen = [r for r in (st.get("_pending_reversal") or []) if isinstance(r, dict) and r.get("name") and r.get("field")]
+    for hr in reversals:
+        pen = [r for r in pen if not (r.get("name") == hr["name"] and r.get("field") == hr["field"])]
+        pen.append(hr)
+    st["_pending_reversal"] = pen[-_REVERSAL_CAP:]
+    state.save(spath, st)
+
+
+def pending_reversals(spath):
+    """The held reversals awaiting the operator's decision (from the auto-drain)."""
+    q = state.load(spath).get("_pending_reversal")
+    return [r for r in q if isinstance(r, dict) and r.get("name") and r.get("field")] if isinstance(q, list) else []
+
+
+def apply_reversal(world: Path, spath, name, field, approve=None) -> bool:
+    """The operator's decision on a held reversal: bless it (apply the flip to canon + log old->new) or,
+    if `approve` returns False, reject it — either way it leaves the pen (a decision is final, never
+    re-nags). Returns True if the flip was applied. Re-reads the CURRENT canon value so a bless logs the
+    real old->new even if canon moved since the hold."""
+    approve = approve or (lambda *a: True)
+    match = next((r for r in pending_reversals(spath) if r.get("name") == name and r.get("field") == field), None)
+    if match is None:
+        return False
+    applied = False
+    if approve("reversal", name, match):
+        node = canon.read_node(world, name)
+        if node is not None and node["frontmatter"].get("kind") == "character":
+            fm = dict(node["frontmatter"])
+            old = str(fm.get(field, "")).strip() or str(match.get("old", "")).strip()
+            new = str(match.get("new", "")).strip()
+            if new and old != new:
+                provenance.log(spath, [{"kind": "character", "name": name, "field": field, "old": old, "new": new,
+                                        "entry_start": match.get("entry_start"), "entry_end": match.get("entry_end"),
+                                        "source": "reversal_bless", "reversal": provenance.is_reversal(field, old, new)}])
+                fm[field] = new
+                canon.write_node(world, name, node["body"], fm)
+                applied = True
+    st = state.load(spath)                                # drop it from the pen (blessed OR rejected)
+    st["_pending_reversal"] = [r for r in (st.get("_pending_reversal") or [])
+                               if not (isinstance(r, dict) and r.get("name") == name and r.get("field") == field)]
+    state.save(spath, st)
+    return applied
+
+
 def _fold_proposals(proposals, world, spath, start, end, apply_canon):
     """Fold ONE window's proposals into the durable stores — the shared body of both the synchronous
     `auto()` and the background-then-drain path. The DIODE: by default only low-risk structured
@@ -579,7 +650,11 @@ def _fold_proposals(proposals, world, spath, start, end, apply_canon):
             queue_pending(spath, norm_nodes)          # change (else parked provenance rows carry no when).
             pending_names = [n["name"] for n in norm_nodes]   # PARK FIRST — a crash before the watermark
             #                                                    advance just re-parks (dedup by name)
-    written = apply(proposals, world, spath, approve, deed_window=(start, end), watermark=end)
+    # the auto path (apply_canon False) has no operator authority → HOLD a disposition FLIP for the
+    # operator instead of auto-overwriting an established feeling (contradiction-repair). apply_canon
+    # True = an operator-authorised fold → apply directly.
+    written = apply(proposals, world, spath, approve, deed_window=(start, end), watermark=end,
+                    hold_reversals=not apply_canon)
     return written, pending_names
 
 

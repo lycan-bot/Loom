@@ -53,6 +53,11 @@ class WebTest(unittest.TestCase):
         except urllib.request.HTTPError as e:
             self.assertEqual(e.code, 404)
 
+    def test_reversals_endpoint_lists_held(self):
+        d = self._get("/api/reversals")                      # contradiction-repair pen (read-only)
+        self.assertIn("reversals", d)
+        self.assertIsInstance(d["reversals"], list)
+
     def test_why_returns_the_provenance_ledger(self):
         d = self._get("/api/why")                    # whole ledger (read-only)
         self.assertIn("changes", d)

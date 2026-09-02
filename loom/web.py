@@ -173,6 +173,10 @@ def make_handler(cfg: dict):
                     {"name": n.get("name", ""), "kind": n.get("kind", "lore"),
                      "body": n.get("body", ""), "fields": n.get("fields") or {}}
                     for n in consolidate.pending(spath)]})
+            if u.path == "/api/reversals":
+                # contradiction-repair: the disposition FLIPS the auto-fold held for the operator's
+                # decision (it never overwrites an established feeling on the archivist's say-so)
+                return self._send(200, {"reversals": consolidate.pending_reversals(spath)})
             if u.path == "/api/check":
                 fs = guard.check(world, spath.parent / "threads.json", tpath=tpath, spath=spath)
                 return self._send(200, {"findings": [{"severity": f.severity, "kind": f.kind,
@@ -368,6 +372,14 @@ def make_handler(cfg: dict):
                 except Exception as e:
                     return self._send(502, {"error": str(e)})
                 return self._send(200, {"written": written})
+            if u.path == "/api/reversals/apply":
+                # the operator's decision on a held reversal: bless (apply the flip) or reject (keep the
+                # feeling). Either way it leaves the pen — a decision is final, never re-nags.
+                name = (body.get("name") or "").strip()
+                field = (body.get("field") or "disposition").strip()
+                bless = bool(body.get("bless", True))
+                applied = consolidate.apply_reversal(world, spath, name, field, approve=(lambda *a: bless))
+                return self._send(200, {"applied": applied, "reversals": consolidate.pending_reversals(spath)})
             if u.path == "/api/compact/propose":
                 # distill a bloated node — propose-only (model call), verified fail-closed for review
                 node = canon.read_node(world, (body.get("name") or "").strip())

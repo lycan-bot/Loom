@@ -419,6 +419,29 @@ def cmd_compact(cfg, name=""):
         print("compacted.")
 
 
+def cmd_reversals(cfg, arg=""):
+    """Contradiction-repair: the disposition FLIPS the auto-fold held for your decision (it never
+    overwrites an established feeling on the archivist's say-so). `loom reversals` lists them;
+    `loom reversals bless <name>` applies the flip; `loom reversals reject <name>` keeps the feeling."""
+    _, world, spath = _paths(cfg)
+    parts = arg.split()
+    if len(parts) >= 2 and parts[0] in ("bless", "reject"):
+        name = " ".join(parts[1:])
+        ok = consolidate.apply_reversal(world, spath, name, "disposition",
+                                        approve=(lambda *a: parts[0] == "bless"))
+        print(("↩ flip applied — " if ok else ("✗ flip rejected; the feeling stands — " if parts[0] == "reject"
+               else "no held reversal for ")) + name)
+        return
+    pen = consolidate.pending_reversals(spath)
+    if not pen:
+        print("no held reversals — no contradicting flips awaiting your decision.")
+        return
+    print("held reversals (a feeling FLIPPED sign; the auto-fold held it rather than overwrite it):")
+    for r in pen:
+        print(f"  {r['name']} {r['field']}: {r['old']!r} → {r['new']!r}")
+    print("\n  decide: loom reversals bless <name>  |  loom reversals reject <name>")
+
+
 def cmd_why(cfg, name):
     """The provenance trail: how a fact reached its current value — every recorded change old→new, when,
     and whether it was a contradiction (a reversal). 'how do I know this?' answered."""
@@ -491,6 +514,8 @@ def main(argv=None):
         cmd_compact(cfg, " ".join(argv[1:]))
     elif cmd == "why":
         cmd_why(cfg, " ".join(argv[1:]))
+    elif cmd == "reversals":
+        cmd_reversals(cfg, " ".join(argv[1:]))
     else:
         print(__doc__)
 
