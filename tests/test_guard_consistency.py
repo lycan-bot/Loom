@@ -84,6 +84,20 @@ class ConsistencyTest(unittest.TestCase):
         fs = self._check(camp, t)
         self.assertTrue(any(f.kind == "disposition-reversal" and "Mara" in f.message for f in fs))
 
+    def test_operator_blessed_arc_is_not_self_contradiction(self):
+        # red-team LOW: blessing a betrayal then a reconciliation (an authored arc) must NOT fire the
+        # 'archivist contradicting itself' detector — a blessed flip is authorised, not self-contradiction
+        from loom import consolidate, canon
+        camp = _camp()
+        canon.write_node(camp / "world", "Mara", "a fisher", {"kind": "character", "disposition": "warm"})
+        sp = camp / "state.json"
+        consolidate.queue_reversal(sp, [{"name": "Mara", "field": "disposition", "old": "warm", "new": "hostile"}])
+        consolidate.apply_reversal(camp / "world", sp, "Mara", "disposition")     # bless → hostile
+        consolidate.queue_reversal(sp, [{"name": "Mara", "field": "disposition", "old": "hostile", "new": "warm"}])
+        consolidate.apply_reversal(camp / "world", sp, "Mara", "disposition")     # bless → warm
+        t = camp / "t.jsonl"; transcript.append(t, "player", "x")
+        self.assertFalse(any(f.kind == "disposition-reversal" for f in self._check(camp, t)))
+
     def test_single_reversal_not_flagged(self):
         # a lone reversal is a legitimate arc (a betrayal) — it must stay quiet (low-noise guarantee)
         camp = _camp()

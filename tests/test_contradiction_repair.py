@@ -92,6 +92,14 @@ class DecideTest(unittest.TestCase):
         self.assertEqual(len(pen), 1)
         self.assertEqual(pen[0]["new"], "wary")                      # the later proposal wins the slot
 
+    def test_pen_is_uncapped(self):
+        # red-team HIGH: a held flip advances the watermark past its turns, so a silently-dropped
+        # contradiction is lost forever — the pen must NOT cap (dedup already bounds it to one/decision)
+        camp = _camp(); sp = camp / "state.json"
+        consolidate.queue_reversal(sp, [{"name": f"NPC{i}", "field": "disposition", "old": "warm", "new": "hostile"}
+                                        for i in range(25)])
+        self.assertEqual(len(consolidate.pending_reversals(sp)), 25)   # all 25 distinct decisions retained
+
 
 if __name__ == "__main__":
     unittest.main()

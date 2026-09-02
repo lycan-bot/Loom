@@ -573,9 +573,6 @@ def apply_pending(world: Path, spath, approve=None) -> dict:
     return written
 
 
-_REVERSAL_CAP = 20            # keep the last N held reversals (bounded, like the deed ledger)
-
-
 def queue_reversal(spath, reversals) -> None:
     """Park held functional-field REVERSALS — contradictions the AUTO-drain proposed without operator
     authority (a disposition FLIP against an established feeling). The diode's holding pen for
@@ -589,7 +586,10 @@ def queue_reversal(spath, reversals) -> None:
     for hr in reversals:
         pen = [r for r in pen if not (r.get("name") == hr["name"] and r.get("field") == hr["field"])]
         pen.append(hr)
-    st["_pending_reversal"] = pen[-_REVERSAL_CAP:]
+    # UNCAPPED, like the sibling _pending_canon pen — a held flip advances the watermark past its source
+    # turns, so a silently-evicted contradiction is lost forever (never re-proposed, no canon change, no
+    # ledger row). Dedup-by-(name,field) already bounds this to one slot per distinct unresolved decision.
+    st["_pending_reversal"] = pen
     state.save(spath, st)
 
 

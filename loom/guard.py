@@ -134,7 +134,8 @@ def disposition_reversal(nodes, thr, ctx):
     from collections import Counter
     from . import provenance
     counts = Counter(r["name"] for r in provenance.reversals(spath)
-                     if r.get("field") == "disposition" and r.get("name"))
+                     if r.get("field") == "disposition" and r.get("name")
+                     and r.get("source") != "reversal_bless")   # an operator-BLESSED flip is authorised, not self-contradiction
     return [Finding("med", "disposition-reversal",
                     f"'{name}' feeling toward the player has flip-flopped {c}× in the record — the archivist "
                     f"may be contradicting itself; 'loom why {name}' shows the trail")
