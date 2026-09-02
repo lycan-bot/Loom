@@ -4,7 +4,7 @@ injected, and a high-rung focal character DELIBERATES before acting. Offline (mo
 import tempfile
 import unittest
 from pathlib import Path
-from loom import worldturn, canon, episodic, config, llm, narrate
+from loom import worldturn, canon, episodic, config, llm, narrate, threads
 
 
 def _camp():
@@ -155,6 +155,67 @@ class RemembersYouTest(unittest.TestCase):
         camp = _camp(); w, tp, sp, nodes = self._scene(camp)
         cfg = dict(config.DEFAULTS); cfg["depth"] = 0.0
         self.assertEqual(narrate._remembers_you_clause(nodes, w, tp, sp, cfg), "")   # off → byte-identical
+
+
+class PursuesThroughYouTest(unittest.TestCase):
+    """Goals-pursued-through-you: an in-scene NPC with a LIVE agenda (a ripened relational thread) works
+    toward its goal THROUGH the player, sized by rung; a dormant wish and a walk-on stay inert."""
+
+    def _scene(self, camp, importance="main", want="to escape the college", bound="a vow to her mentor", ripe=True):
+        w = camp / "world"
+        canon.write_node(w, "Kess", "the player", {"kind": "character", "player": "true"})
+        fm = {"kind": "character", "importance": importance, "wants": want}
+        if bound:
+            fm["bound"] = bound
+        canon.write_node(w, "Wren", "a cadet", fm)
+        sp, tp = camp / "state.json", camp / "transcript.jsonl"
+        episodic.record(sp, [{"what": "Wren copied a warded page", "who": "Wren"}], entry_start=1, source="play")
+        if ripe:                                     # a director-ripened relational thread → the pursuit is LIVE
+            th = threads.Thread(id=threads.make_id(f"Wren {want}"), question="Will Wren escape?",
+                                entities=["Wren"], readiness=0.5, status="ripening")
+            threads.save(sp.parent / "threads.json", [th])
+        wren = canon.read_node(w, "Wren"); wren["score"] = 1.0
+        kess = canon.read_node(w, "Kess"); kess["score"] = 1.0
+        return w, tp, sp, [wren, kess]
+
+    def test_live_agenda_pursued_through_you(self):
+        camp = _camp(); w, tp, sp, nodes = self._scene(camp)
+        cfg = dict(config.DEFAULTS); cfg["depth"] = 1.0
+        cl = narrate._pursues_clause(nodes, w, tp, sp, cfg)
+        self.assertIn("Wren wants to escape the college", cl)     # the live goal, not just a name
+        self.assertIn("In this scene Wren", cl)                   # pursued IN THE SCENE with the player
+        self.assertIn("actively works toward it", cl)             # rung 1.0 → the deliberation tier maneuvers
+        self.assertIn("copied a warded page", cl)                 # grounded in its BLESSED pursuit history
+        self.assertIn("never have them baldly announce", cl)      # the hidden-goal discipline is in the framing
+
+    def test_silent_at_depth_zero(self):
+        camp = _camp(); w, tp, sp, nodes = self._scene(camp)
+        cfg = dict(config.DEFAULTS); cfg["depth"] = 0.0
+        self.assertEqual(narrate._pursues_clause(nodes, w, tp, sp, cfg), "")   # off → byte-identical
+
+    def test_walkon_carries_no_agenda(self):
+        camp = _camp()
+        w = camp / "world"
+        canon.write_node(w, "Kess", "the player", {"kind": "character", "player": "true"})
+        canon.write_node(w, "Extra", "a porter", {"kind": "character", "importance": "passing", "wants": "to loiter"})
+        sp, tp = camp / "state.json", camp / "transcript.jsonl"
+        extra = canon.read_node(w, "Extra"); extra["score"] = 1.0
+        cfg = dict(config.DEFAULTS); cfg["depth"] = 1.0
+        self.assertEqual(narrate._pursues_clause([extra], w, tp, sp, cfg), "")   # rung 0 → no will in the scene
+
+    def test_dormant_wish_is_not_pursued(self):
+        # a main with a want but NO ripened thread — a private wish, not yet in motion → left inert
+        camp = _camp(); w, tp, sp, nodes = self._scene(camp, ripe=False)
+        cfg = dict(config.DEFAULTS); cfg["depth"] = 1.0
+        self.assertEqual(narrate._pursues_clause(nodes, w, tp, sp, cfg), "")
+
+    def test_mid_rung_leans_high_rung_maneuvers(self):
+        # a side character at full depth is rung 0.5 — has an agenda, but below the deliberation tier (0.75)
+        camp = _camp(); w, tp, sp, nodes = self._scene(camp, importance="side")
+        cfg = dict(config.DEFAULTS); cfg["depth"] = 1.0
+        cl = narrate._pursues_clause(nodes, w, tp, sp, cfg)
+        self.assertIn("leans toward it", cl)
+        self.assertNotIn("actively works toward it", cl)
 
 
 if __name__ == "__main__":
