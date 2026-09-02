@@ -342,7 +342,8 @@ def make_handler(cfg: dict):
                     written = consolidate.apply(
                         proposals, world, spath,
                         approve=lambda kind, name, _p: name in ok.get(kind, set()),
-                        deed_window=(start, total), watermark=total)
+                        deed_window=(start, total), watermark=total,
+                        world_state=bool(cfg.get("world_state")))
                 except Exception as e:
                     return self._send(502, {"error": str(e)})
                 return self._send(200, {"written": written})
@@ -444,6 +445,10 @@ def make_handler(cfg: dict):
                 attr = (body.get("attribute") or "").strip()
                 if not subj or not attr:
                     return self._send(400, {"error": "subject and attribute required"})
+                if not world_state.keyable(subj, attr):   # a punctuation-only field norms to '' → would collide
+                    return self._send(400, {"error": "subject and attribute must contain letters or numbers"})
+                if not cfg.get("world_state"):             # keep _world un-written while the layer is off
+                    return self._send(409, {"error": "enable world state first (⚙ Session) to track world facts"})
                 if body.get("retract"):
                     removed = world_state.remove(spath, subj, attr)
                     return self._send(200, {"removed": removed, "subjects": world_state.by_subject(world_state.load(spath))})

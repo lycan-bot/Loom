@@ -48,6 +48,14 @@ def key(subject, attribute) -> str:
     return _norm(subject) + "\x1f" + _norm(attribute)
 
 
+def keyable(subject, attribute) -> bool:
+    """True only when BOTH fields survive normalization to something non-empty. A punctuation-only or
+    'the'-only field norms to '' and would collide with every other such field on the one empty-key slot
+    (clobbering distinct facts + logging a false reversal), so such a fact is not storable. The gate for
+    _clean / upsert / consolidation / the operator POST, so no unkeyable fact ever enters the store."""
+    return bool(_norm(subject)) and bool(_norm(attribute))
+
+
 def _clean(f):
     """A well-formed fact dict, or None — subject/attribute/value must all be non-empty strings."""
     if not isinstance(f, dict):
@@ -55,8 +63,8 @@ def _clean(f):
     subj = str(f.get("subject", "")).strip()
     attr = str(f.get("attribute", "")).strip()
     val = str(f.get("value", "")).strip()
-    if not subj or not attr or not val:
-        return None
+    if not subj or not attr or not val or not keyable(subj, attr):
+        return None                                    # empty, or a subject/attribute that norms to '' (collides)
     out = {"subject": subj, "attribute": attr, "value": val}
     if f.get("since") is not None:
         try:
@@ -103,8 +111,8 @@ def upsert(facts, subject, attribute, value, since=None, source="play"):
     persists new_facts and, if applied and old is not None, logs the old->new to provenance."""
     subject, attribute, value = str(subject).strip(), str(attribute).strip(), str(value).strip()
     clean = [c for c in (_clean(f) for f in (facts or [])) if c]
-    if not subject or not attribute or not value:
-        return clean, {"applied": False, "old": None, "new": value, "reversal": False}
+    if not subject or not attribute or not value or not keyable(subject, attribute):
+        return clean, {"applied": False, "old": None, "new": value, "reversal": False}   # empty or unkeyable
     k = key(subject, attribute)
     old, kept = None, []
     for f in clean:
@@ -163,8 +171,11 @@ def remove(spath, subject, attribute) -> bool:
         return False
     st[_KEY] = kept
     state.save(spath, st)
+    # the retraction marker must DIFFER from the old value, else provenance.log no-ops it (old==new) and the
+    # retraction goes unrecorded — a fact literally valued "(retracted)" would otherwise vanish silently
+    marker = "(retracted)" if removed["value"].strip().lower() != "(retracted)" else "(retracted by operator)"
     provenance.log(spath, [{"kind": "world", "name": removed["subject"], "field": removed["attribute"],
-                            "old": removed["value"], "new": "(retracted)", "source": "operator", "reversal": False}])
+                            "old": removed["value"], "new": marker, "source": "operator", "reversal": False}])
     return True
 
 

@@ -63,6 +63,27 @@ class StoreTest(unittest.TestCase):
         self.assertFalse(world.remove(sp, "gate", "state"))             # already gone
         self.assertTrue(any(r["new"] == "(retracted)" for r in provenance.entries(sp)))
 
+    def test_empty_norm_subjects_are_unkeyable(self):
+        # red-team: a punctuation-only or 'the'-only field norms to '' and would collide on one key slot
+        self.assertFalse(world.keyable("...", "state"))
+        self.assertFalse(world.keyable("the gate", "!!!"))     # punctuation-only attribute
+        self.assertTrue(world.keyable("the gate", "state"))
+        sp = _sp()
+        self.assertFalse(world.set_fact(sp, "...", "state", "A")["applied"])   # rejected, not stored
+        self.assertFalse(world.set_fact(sp, "(!)", "state", "B")["applied"])   # a DISTINCT unkeyable subject
+        self.assertEqual(world.load(sp), [])                                   # neither stored → no collision
+        # and the diode normalizer drops them too (they aren't just <...> template echoes)
+        norm = consolidate._normalize({"world": [{"subject": "...", "attribute": "state", "value": "x"},
+                                                 {"subject": "the gate", "attribute": "???", "value": "y"}]})
+        self.assertEqual(norm["world"], [])
+
+    def test_retraction_of_sentinel_value_still_records(self):
+        # red-team: a fact literally valued '(retracted)' must still log its retraction (marker must differ)
+        sp = _sp()
+        world.set_fact(sp, "seal", "ward", "(retracted)")
+        self.assertTrue(world.remove(sp, "seal", "ward"))
+        self.assertTrue(any("retract" in r["new"].lower() for r in provenance.history(sp, name="seal")))
+
     def test_upsert_is_pure(self):
         facts = [{"subject": "door", "attribute": "state", "value": "open"}]
         out, delta = world.upsert(facts, "door", "state", "closed")
@@ -91,13 +112,20 @@ class StoreTest(unittest.TestCase):
 class DiodeTest(unittest.TestCase):
     """world facts fold through the same propose->apply diode as state/reputation, with provenance."""
 
-    def _apply(self, proposals, approve=None, world_dir=None, deed_window=(0, 2)):
+    def _apply(self, proposals, approve=None, world_dir=None, deed_window=(0, 2), world_state=True):
         camp = Path(tempfile.mkdtemp())
         (camp / "world").mkdir()
         sp = camp / "state.json"
         consolidate.apply(proposals, world_dir or (camp / "world"), sp,
-                          approve or (lambda *a: True), deed_window=deed_window)
+                          approve or (lambda *a: True), deed_window=deed_window, world_state=world_state)
         return sp
+
+    def test_apply_write_is_gated_on_the_toggle(self):
+        # off-parity (red-team): apply() must NOT write _world when world_state is off, even if a proposal
+        # carries a world array (a fold proposed while ON then drained OFF, or a non-compliant model)
+        props = {"world": [{"subject": "gate", "attribute": "state", "value": "locked"}]}
+        self.assertEqual(world.load(self._apply(props, world_state=False)), [])          # off → nothing written
+        self.assertEqual(world.get(world.load(self._apply(props, world_state=True)), "gate", "state"), "locked")
 
     def test_world_facts_land_via_apply(self):
         sp = self._apply({"world": [{"subject": "the door", "attribute": "state", "value": "barred"},
@@ -109,9 +137,9 @@ class DiodeTest(unittest.TestCase):
     def test_change_is_reconciled_not_clobbered(self):
         camp = Path(tempfile.mkdtemp()); (camp / "world").mkdir(); sp = camp / "state.json"
         consolidate.apply({"world": [{"subject": "door", "attribute": "state", "value": "open"}]},
-                          camp / "world", sp, lambda *a: True, deed_window=(0, 2))
+                          camp / "world", sp, lambda *a: True, deed_window=(0, 2), world_state=True)
         consolidate.apply({"world": [{"subject": "door", "attribute": "state", "value": "shattered"}]},
-                          camp / "world", sp, lambda *a: True, deed_window=(2, 4))
+                          camp / "world", sp, lambda *a: True, deed_window=(2, 4), world_state=True)
         self.assertEqual(world.get(world.load(sp), "door", "state"), "shattered")
         rows = provenance.history(sp, name="door")
         self.assertEqual((rows[0]["old"], rows[0]["new"]), ("open", "shattered"))   # logged old->new

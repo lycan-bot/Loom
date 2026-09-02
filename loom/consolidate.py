@@ -209,9 +209,10 @@ def _normalize(proposals: dict) -> dict:
         subj = _s(wf.get("subject")).strip()
         attr = _s(wf.get("attribute")).strip()
         val = _s(wf.get("value")).strip()
-        # a real fact needs all three; drop only a schema-template echo ('<...>') — NOT a real object named
-        # 'key'/'value' (those are legitimate world subjects, unlike a state fact-name)
-        if subj and attr and val and _no_template(subj) and _no_template(attr) and _no_template(val):
+        # a real fact needs all three; drop a schema-template echo ('<...>') — but NOT a real object named
+        # 'key'/'value' — and drop an unkeyable subject/attribute (norms to '' → would collide on one slot)
+        if (subj and attr and val and _no_template(subj) and _no_template(attr) and _no_template(val)
+                and world_layer.keyable(subj, attr)):
             world_facts.append({"subject": subj, "attribute": attr, "value": val})
 
     resolved_raw = proposals.get("threads_resolved")
@@ -362,7 +363,7 @@ def propose(cfg: dict, session_lines: list[dict], existing_threads=None, world=N
 
 
 def apply(proposals: dict, world: Path, state_path: Path, approve,
-          deed_window=None, watermark=None, hold_reversals=False) -> dict:
+          deed_window=None, watermark=None, hold_reversals=False, world_state=False) -> dict:
     """Write approved proposals to canon + state. `approve(kind, name, payload) -> bool` is
     called for EVERY change; nothing is written unless it returns True — the diode, the operator's
     hand between improv and canon.
@@ -433,7 +434,10 @@ def apply(proposals: dict, world: Path, state_path: Path, approve,
     # provenance (never a blind clobber) exactly like a state fact. world.upsert is PURE, so this rides the
     # SAME batched state.save below (calling world.set_fact here would clobber that save). A concrete state
     # transition, not a valence flip — it supersedes with an audit row; it is not held like a disposition.
-    for wf in p["world"]:
+    # The WRITE side is gated too: world_state off => never touch _world, even if a proposal carries a `world`
+    # array (a stale fold queued while ON then drained OFF, or a non-compliant model). Byte-identical-off is
+    # enforced HERE, not only in propose() — apply() is the universal chokepoint every fold path passes through.
+    for wf in (p["world"] if world_state else []):
         subj, attr, val = wf["subject"], wf["attribute"], wf["value"]
         if not approve("world", subj, wf):
             continue
@@ -683,7 +687,7 @@ def apply_reversal(world: Path, spath, name, field, approve=None) -> bool:
     return applied
 
 
-def _fold_proposals(proposals, world, spath, start, end, apply_canon):
+def _fold_proposals(proposals, world, spath, start, end, apply_canon, world_state=False):
     """Fold ONE window's proposals into the durable stores — the shared body of both the synchronous
     `auto()` and the background-then-drain path. The DIODE: by default only low-risk structured
     continuity (facts, reputation, disposition/location, thread ripening) applies; canon nodes + thread
@@ -708,7 +712,7 @@ def _fold_proposals(proposals, world, spath, start, end, apply_canon):
     # operator instead of auto-overwriting an established feeling (contradiction-repair). apply_canon
     # True = an operator-authorised fold → apply directly.
     written = apply(proposals, world, spath, approve, deed_window=(start, end), watermark=end,
-                    hold_reversals=not apply_canon)
+                    hold_reversals=not apply_canon, world_state=world_state)
     return written, pending_names
 
 
@@ -725,7 +729,8 @@ def auto(cfg, tpath, world, spath, apply_canon: bool = False):
         proposals = propose(cfg, new_lines, existing, world=world)
     except Exception as e:
         return {"error": str(e), "new": len(new_lines)}
-    written, pending_names = _fold_proposals(proposals, world, spath, wm, total, apply_canon)
+    written, pending_names = _fold_proposals(proposals, world, spath, wm, total, apply_canon,
+                                             world_state=bool(cfg.get("world_state")))
     return {"applied": written, "pending_nodes": pending_names,
             "summary": proposals.get("summary", ""), "new": len(new_lines)}
 
@@ -767,7 +772,8 @@ def drain_inbox(cfg, tpath, world, spath) -> dict:
             if start > wm_now:
                 inbox.append(spath, job)              # predecessor window still pending → re-queue
                 continue
-            _fold_proposals(job.get("proposals") or {}, world, spath, start, end, bool(job.get("apply_canon")))
+            _fold_proposals(job.get("proposals") or {}, world, spath, start, end, bool(job.get("apply_canon")),
+                            world_state=bool(cfg.get("world_state")))
             applied += 1
         except Exception:
             continue
