@@ -4,7 +4,7 @@ injected, and a high-rung focal character DELIBERATES before acting. Offline (mo
 import tempfile
 import unittest
 from pathlib import Path
-from loom import worldturn, canon, episodic, config, llm, narrate, threads
+from loom import worldturn, canon, episodic, config, llm, narrate, threads, salience
 
 
 def _camp():
@@ -186,7 +186,7 @@ class PursuesThroughYouTest(unittest.TestCase):
         self.assertIn("In this scene Wren", cl)                   # pursued IN THE SCENE with the player
         self.assertIn("actively works toward it", cl)             # rung 1.0 → the deliberation tier maneuvers
         self.assertIn("copied a warded page", cl)                 # grounded in its BLESSED pursuit history
-        self.assertIn("never have them baldly announce", cl)      # the hidden-goal discipline is in the framing
+        self.assertIn("stays concealed", cl)                      # the hidden-goal discipline is in the framing
 
     def test_silent_at_depth_zero(self):
         camp = _camp(); w, tp, sp, nodes = self._scene(camp)
@@ -216,6 +216,53 @@ class PursuesThroughYouTest(unittest.TestCase):
         cl = narrate._pursues_clause(nodes, w, tp, sp, cfg)
         self.assertIn("leans toward it", cl)
         self.assertNotIn("actively works toward it", cl)
+
+    def test_borrowed_foreign_thread_is_not_a_live_pursuit(self):
+        # red-team: an NPC with NO own want-thread must not borrow a co-star's readiness and read as ripe
+        camp = _camp(); w = camp / "world"
+        canon.write_node(w, "Kess", "the player", {"kind": "character", "player": "true"})
+        canon.write_node(w, "Kael", "a grim swordsman", {"kind": "character", "importance": "main",
+                                                         "wants": "to avenge his brother", "bound": "a vow of peace"})
+        sp, tp = camp / "state.json", camp / "transcript.jsonl"
+        # Mara's OWN thread is ready; Kael merely co-appears in it as a secondary entity (no thread of his own)
+        mara = threads.Thread(id=threads.make_id("Mara to seize the seat"), question="Will Mara seize it?",
+                              entities=["Mara", "Kael"], readiness=0.85, status="ready")
+        threads.save(sp.parent / "threads.json", [mara])
+        kael = canon.read_node(w, "Kael"); kael["score"] = 1.0
+        cfg = dict(config.DEFAULTS); cfg["depth"] = 1.0
+        self.assertEqual(narrate._pursues_clause([kael], w, tp, sp, cfg), "")   # dormant OWN goal → not pursued
+        # control: give Kael his OWN ripened thread → now he genuinely is a live pursuer
+        own = threads.Thread(id=threads.make_id("Kael to avenge his brother"), question="Will Kael avenge?",
+                             entities=["Kael"], readiness=0.6, status="ripening")
+        threads.save(sp.parent / "threads.json", [mara, own])
+        self.assertIn("Kael wants to avenge his brother", narrate._pursues_clause([kael], w, tp, sp, cfg))
+
+    def test_framing_is_subtext_only(self):
+        # red-team: a goal is rendered as subtext, never announced; a concealed goal stays concealed
+        camp = _camp(); w, tp, sp, nodes = self._scene(camp)
+        cfg = dict(config.DEFAULTS); cfg["depth"] = 1.0
+        cl = narrate._pursues_clause(nodes, w, tp, sp, cfg)
+        self.assertIn("SUBTEXT", cl)
+        self.assertIn("stays concealed", cl)
+        self.assertIn("NEVER state a goal", cl)
+
+    def test_precomputed_tiers_avoids_a_second_classify(self):
+        # red-team: the two agency clauses must share ONE salience pass — a passed-in tiers is not recomputed
+        camp = _camp(); w, tp, sp, nodes = self._scene(camp)
+        cfg = dict(config.DEFAULTS); cfg["depth"] = 1.0
+        precomputed = salience.tiers_by_name(w, tp, sp)
+        orig = salience.tiers_by_name
+
+        def boom(*a, **k):
+            raise AssertionError("recomputed classify() instead of using the precomputed tiers")
+
+        salience.tiers_by_name = boom
+        try:
+            cl = narrate._pursues_clause(nodes, w, tp, sp, cfg, tiers=precomputed)
+            narrate._remembers_you_clause(nodes, w, tp, sp, cfg, tiers=precomputed)   # sibling honours it too
+        finally:
+            salience.tiers_by_name = orig
+        self.assertIn("Wren wants", cl)                    # produced the clause without a second classify()
 
 
 if __name__ == "__main__":

@@ -36,26 +36,34 @@ def _status(thread) -> str:
     return "latent — held in check for now"
 
 
-def _thread_for(name, want, thread_list):
+def _thread_for(name, want, thread_list, own_only=False):
     """The NPC's own relational thread (its want as a ripening dramatic question), or None. Matches the
-    id npc.relational_threads mints first, then falls back to any unresolved thread naming the NPC."""
+    id npc.relational_threads mints first, then falls back to any unresolved thread merely NAMING the NPC.
+
+    That name-entity fallback is fine for world-round casting, but it lets a character with NO live
+    want-thread of its own borrow the readiness/status of a thread it only co-stars in — so a dormant
+    'private wish' can read as ripe. `own_only=True` drops the fallback (id-match only), for a consumer
+    that must judge the NPC's OWN pursuit and nothing borrowed (the player-facing live-pursuit read)."""
     tid = _threads.make_id(f"{name} {want}")
     for t in thread_list:
         if getattr(t, "id", None) == tid:
             return t
+    if own_only:
+        return None
     for t in thread_list:
         if getattr(t, "status", "") != "resolved" and name in (getattr(t, "entities", []) or []):
             return t
     return None
 
 
-def pursuit(name, moral, thread_list, spath, rung) -> dict:
+def pursuit(name, moral, thread_list, spath, rung, own_only=False) -> dict:
     """An NPC's pursuit state, composed from blessed signals — {} when it has no want or no personhood
-    budget (rung 0). `remembers` is a BLESSED-only recall sized by rung (a goal read never sees improv)."""
+    budget (rung 0). `remembers` is a BLESSED-only recall sized by rung (a goal read never sees improv).
+    `own_only` (see _thread_for) forbids borrowing a co-star's thread — the pursuit must be the NPC's own."""
     want = (getattr(moral, "want", "") or "").strip()
     if not want or float(rung or 0) <= 0:
         return {}
-    thread = _thread_for(name, want, thread_list)
+    thread = _thread_for(name, want, thread_list, own_only=own_only)
     k = salience.recall_k(rung)
     # the NPC's RECENT blessed beats — what it actually, verifiably did (its pursuit history). Recent
     # rather than BM25-on-the-want: the NPC acts on its goal, so its latest acts ARE the pursuit, and
