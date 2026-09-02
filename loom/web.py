@@ -82,6 +82,7 @@ def make_handler(cfg: dict):
                     "unconsolidated": max(0, len(transcript.read_all(tpath)) - int(st_all.get("_consolidated", 0) or 0)),
                     "auto_consolidate": bool(cfg.get("auto_consolidate")),
                     "pending_canon": len(consolidate.pending(spath)),   # canon parked by auto-fold, awaiting bless
+                    "pending_reversal": len(consolidate.pending_reversals(spath)),   # held feeling-flips awaiting a decision
                     "reputation": [{"who": w, "standing": int(e.get("standing", 0) or 0),
                                     "label": reputation.label(int(e.get("standing", 0) or 0)),
                                     "log": [s for s in (e.get("log") or []) if isinstance(s, str)]}
@@ -135,37 +136,7 @@ def make_handler(cfg: dict):
                 node = canon.read_node(world, name) if name else None
                 if not node or node["frontmatter"].get("kind") != "character":
                     return self._send(404, {"error": "no such character"})
-                fm = node["frontmatter"]
-                depth = float(cfg.get("depth", 0) or 0)
-                tier = salience.tiers_by_name(world, tpath, spath).get(name, "side")
-                rung = salience.char_rung(tier, depth)
-                m = npc.moral_read(str(fm.get("wants", "")), str(fm.get("bound", "")))
-                thread_list = threads.load(spath.parent / "threads.json")
-                # for INSPECTION the panel composes the interior even for a low-rung NPC (the live gates
-                # still hold in play); use a display floor so the operator can always see what's there
-                disp_rung = max(rung, 0.5)
-                pursuit = agenda.pursuit(name, m, thread_list, spath, disp_rung)
-                standing = 0
-                rep_e = reputation.load(state.load(spath)).get(name)
-                if isinstance(rep_e, dict):
-                    try:
-                        standing = int(rep_e.get("standing", 0) or 0)
-                    except (TypeError, ValueError):
-                        standing = 0
-                pc = (player.card(world).get("name") or "").strip()
-                _mem = lambda rows: [{"what": e.get("what", ""), "source": e.get("source", "")} for e in rows]
-                return self._send(200, {
-                    "name": name, "tier": tier, "rung": round(rung, 2),
-                    "is_player": player.is_player(node),
-                    # the agenda/mood are composed at a DISPLAY floor (0.5) for inspection; in live play a
-                    # sub-0.5-rung NPC gets no agenda — flag it so the panel can't be misread as the live budget
-                    "agenda_projected": bool(rung < salience.AGENDA_RUNG),
-                    "card": character.card(node),
-                    "mood": mood.label(fm.get("disposition", ""), standing, pursuit.get("status", "")),
-                    "agenda": pursuit,
-                    "remembers": _mem(npc_memory.recall(spath, name, k=6, blessed_only=False)),
-                    "remembers_player": _mem(npc_memory.shared(spath, name, pc, k=6, blessed_only=False)) if pc and pc != name else [],
-                })
+                return self._send(200, character.interior(world, tpath, spath, cfg, node))
             if u.path == "/api/pending":
                 # canon-node proposals auto-consolidation PARKED for the operator to bless (the diode's pen) —
                 # the fix for auto-fold silently dropping canon past the watermark
@@ -204,6 +175,7 @@ def make_handler(cfg: dict):
                                         "tone_steer": bool(cfg.get("tone_steer")),
                                         "stream": bool(cfg.get("stream")),
                                         "scene_memory": bool(cfg.get("scene_memory")),
+                                        "salience_decay": bool(cfg.get("salience_decay")),
                                         "memory_every": cfg.get("memory_every", 4),
                                         "auto_consolidate": bool(cfg.get("auto_consolidate")),
                                         "auto_consolidate_apply": bool(cfg.get("auto_consolidate_apply")),
@@ -468,6 +440,8 @@ def make_handler(cfg: dict):
                     up["stream"] = bool(body["stream"])
                 if "scene_memory" in body:
                     up["scene_memory"] = bool(body["scene_memory"])
+                if "salience_decay" in body:
+                    up["salience_decay"] = bool(body["salience_decay"])   # the forgetting re-ranker on/off
                 if "memory_every" in body:
                     try:
                         up["memory_every"] = max(1, min(20, int(body["memory_every"])))

@@ -9,6 +9,7 @@ Pairs with npc.py: the characters that *want* things (drives) now also *sound* l
 themselves and warm or cool toward the player.
 """
 from __future__ import annotations
+from pathlib import Path
 from . import prompt_security as sec
 
 
@@ -55,3 +56,35 @@ def card(node) -> dict:
             "voice": g("voice"), "disposition": g("disposition"),
             "want": g("wants"), "bound": g("bound"),
             "description": node["body"].strip()}
+
+
+def interior(world, tpath, spath, cfg, node) -> dict:
+    """The composed NPC INTERIOR — card + personhood rung + mood + agenda + memory + memory-of-you, all
+    from BLESSED signals (nothing stored, nothing self-propagating). Shared by GET /api/npc and the
+    `loom npc` CLI. For INSPECTION the agenda/mood compose at a 0.5 display floor even for a low-rung NPC;
+    `agenda_projected` flags that so it can't be misread as the live budget (the live gate still holds)."""
+    from . import salience, agenda, mood, npc_memory, npc, threads, player, reputation, state
+    name, fm = node["name"], node["frontmatter"]
+    depth = float(cfg.get("depth", 0) or 0)
+    tier = salience.tiers_by_name(world, tpath, spath).get(name, "side")
+    rung = salience.char_rung(tier, depth)
+    m = npc.moral_read(str(fm.get("wants", "")), str(fm.get("bound", "")))
+    thread_list = threads.load(Path(spath).parent / "threads.json")
+    pursuit = agenda.pursuit(name, m, thread_list, spath, max(rung, 0.5))
+    standing = 0
+    rep_e = reputation.load(state.load(spath)).get(name)
+    if isinstance(rep_e, dict):
+        try:
+            standing = int(rep_e.get("standing", 0) or 0)
+        except (TypeError, ValueError):
+            standing = 0
+    pc = (player.card(world).get("name") or "").strip()
+
+    def _mem(rows):
+        return [{"what": e.get("what", ""), "source": e.get("source", "")} for e in rows]
+
+    return {"name": name, "tier": tier, "rung": round(rung, 2), "is_player": player.is_player(node),
+            "agenda_projected": bool(rung < salience.AGENDA_RUNG), "card": card(node),
+            "mood": mood.label(fm.get("disposition", ""), standing, pursuit.get("status", "")),
+            "agenda": pursuit, "remembers": _mem(npc_memory.recall(spath, name, k=6, blessed_only=False)),
+            "remembers_player": _mem(npc_memory.shared(spath, name, pc, k=6, blessed_only=False)) if pc and pc != name else []}

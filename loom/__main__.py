@@ -23,7 +23,7 @@ Usage:
 """
 from __future__ import annotations
 import sys
-from . import config, narrate, consolidate, seal, transcript, canon, state, llm, threads, npc, imagine, guard, sleep, worldturn, generate, undo, reputation, recall, extract, episodic, compact, provenance
+from . import config, narrate, consolidate, seal, transcript, canon, state, llm, threads, npc, imagine, guard, sleep, worldturn, generate, undo, reputation, recall, extract, episodic, compact, provenance, character
 
 
 def _paths(cfg):
@@ -419,6 +419,28 @@ def cmd_compact(cfg, name=""):
         print("compacted.")
 
 
+def cmd_npc(cfg, name):
+    """A character's composed INTERIOR — personhood rung, mood, agenda, and what they remember (of the
+    world and of you). The same read-view the /tron mind panel shows, in the terminal."""
+    tpath, world, spath = _paths(cfg)
+    node = canon.read_node(world, name) if name else None
+    if not node or node["frontmatter"].get("kind") != "character":
+        print(f"no such character: {name!r}")
+        return
+    d = character.interior(world, tpath, spath, cfg, node)
+    print(f"{d['name']}  —  {d['tier']} · rung {d['rung']}" + ("  (interior projected for review)" if d["agenda_projected"] else ""))
+    if d["mood"]:
+        print(f"  mood     : {d['mood']}")
+    ag = d["agenda"]
+    if ag:
+        print(f"  goal     : {ag.get('goal')}" + (f"  (held by {ag['opposes']})" if ag.get("opposes") else ""))
+        print(f"  pursuit  : {ag.get('status')}")
+    if d["remembers"]:
+        print("  remembers: " + "; ".join(r["what"] for r in d["remembers"][:4]))
+    if d["remembers_player"]:
+        print("  of you   : " + "; ".join(r["what"] for r in d["remembers_player"][:4]))
+
+
 def cmd_reversals(cfg, arg=""):
     """Contradiction-repair: the disposition FLIPS the auto-fold held for your decision (it never
     overwrites an established feeling on the archivist's say-so). `loom reversals` lists them;
@@ -516,6 +538,8 @@ def main(argv=None):
         cmd_why(cfg, " ".join(argv[1:]))
     elif cmd == "reversals":
         cmd_reversals(cfg, " ".join(argv[1:]))
+    elif cmd == "npc" and len(argv) > 1:
+        cmd_npc(cfg, " ".join(argv[1:]))
     else:
         print(__doc__)
 

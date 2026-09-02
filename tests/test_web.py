@@ -19,6 +19,7 @@ class WebTest(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         cls.httpd.shutdown()
+        cls.httpd.server_close()          # release the listening socket (else a ResourceWarning)
 
     def _get(self, path):
         with urllib.request.urlopen(f"http://127.0.0.1:{self.port}{path}", timeout=5) as r:
@@ -52,6 +53,7 @@ class WebTest(unittest.TestCase):
             self.fail("expected 404")
         except urllib.request.HTTPError as e:
             self.assertEqual(e.code, 404)
+            e.close()                     # close the error response (else a ResourceWarning)
 
     def test_reversals_endpoint_lists_held(self):
         d = self._get("/api/reversals")                      # contradiction-repair pen (read-only)

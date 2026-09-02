@@ -229,6 +229,14 @@ async function renderMemories(){
   if(rep.length){h+=`<div class="memh">how the world regards you</div>`+rep.map(r=>{const col=r.standing>0?"#7fd18a":r.standing<0?"#d67f7f":"var(--muted)";return `<div style="font-size:12.5px"><b style="color:${col}">${esc(r.label)}</b> · ${esc(r.who)}</div>`;}).join("");}
   if(events.length){h+=`<div class="memh">what's happened</div>`+events.map(n=>`<div class="ev" onclick="openNode('${n.name.replace(/'/g,"")}')"><span class="evk">event</span>${esc(n.name)}</div>`).join("");}
   if(resolved.length){h+=`<div class="memh">closed arcs</div>`+resolved.map(t=>`<div class="ev" style="cursor:default"><span class="evk">✓</span>${esc(t.question)}</div>`).join("");}
+  // the two-clock timeline (episodic spine) — most recent beats, with their in-fiction / real-turn clock
+  let tl=[];try{tl=(await (await fetch("/api/timeline")).json()).events||[];}catch(e){}
+  if(tl.length){h+=`<div class="memh">the timeline</div>`+tl.slice(-14).map(e=>{
+    const when=e.when||(e.entry_start!=null?`entries ${e.entry_start}-${e.entry_end}`:"");
+    const gl=e.source==="world"?"~":e.source==="sleep"?"☾":"·";
+    return `<div class="ev" style="cursor:default"><span class="evk">${gl}</span>${esc(e.what)}${when?` <span style="color:var(--muted);font-size:11px">(${esc(when)})</span>`:""}</div>`;}).join("");}
+  // search the record — verbatim recall of past turns (the story quotes its own transcript, never confabulates)
+  h+=`<div class="memh">search the record</div><div style="display:flex;gap:6px"><input id="recallq" placeholder="what did she say about the ward?" style="flex:1" onkeydown="if(event.key==='Enter')doRecall()"><button onclick="doRecall()">recall</button></div><div id="recallout"></div>`;
   h+=`<div class="memh">the archive</div><div style="font-size:12.5px;color:var(--muted)">${(g.nodes||[]).length} nodes remembered · <a class="addlink" onclick="openGraph()">open the map</a></div>`;
   $("reader").innerHTML=h;
 }
@@ -306,6 +314,8 @@ async function openNode(name){
     $("reader").innerHTML=_eb(c.name)+`<h2>${esc(c.name)}</h2><div class="kind">character${c.role?" · "+esc(c.role):""}</div>`+
       row("met",c.met)+row("wants",c.want)+row("held by",c.bound)+row("voice",c.voice)+row("toward you",c.disposition)+
       `<div class="body" style="margin-top:10px">${mdToHtml(c.description)}</div>`;
+    try{const d=await (await fetch("/api/npc?name="+encodeURIComponent(name))).json();   // the composed interior
+        if(d&&d.name) $("reader").insertAdjacentHTML("beforeend",_mindPanel(d));}catch(e){}
     return;
   }
   $("reader").innerHTML=_eb(n.name)+`<h2>${esc(n.name)}</h2><div class="kind">${esc(n.kind)}</div>`+
@@ -396,6 +406,7 @@ async function editSettings(){
     `<label style="display:block"><input type="checkbox" id="s_tone" ${c.tone_steer?"checked":""}> dynamic tone — the narrator's register follows the scene (needs the tone vector served)</label>`+
     `<label style="display:block"><input type="checkbox" id="s_stream" ${c.stream?"checked":""}> stream narration — the story appears word by word as it's written</label>`+
     `<label style="display:block;margin-top:8px"><input type="checkbox" id="s_mem" ${c.scene_memory?"checked":""}> story memory — keep a running 'story so far' so early details aren't forgotten</label>`+
+    `<label style="display:block;font-size:12px;opacity:.9"><input type="checkbox" id="s_decay" ${c.salience_decay?"checked":""}> forgetting — recall favours the live scene; dormant canon fades (never buries a direct match)</label>`+
     `<label>memory refresh · every N turns</label><select id="s_memevery">`+[2,3,4,6,8,10].map(v=>`<option value="${v}"${(c.memory_every||4)==v?" selected":""}>${v}</option>`).join("")+`</select>`+
     `<label style="display:block;margin-top:8px"><input type="checkbox" id="s_autocon" ${c.auto_consolidate?"checked":""}> auto-consolidate — fold new turns into memory automatically (incremental; canon nodes stay gated)</label>`+
     `<label style="display:block;font-size:12px;opacity:.85"><input type="checkbox" id="s_autocanon" ${c.auto_consolidate_apply?"checked":""}> └ also auto-write canon nodes (bypasses the per-item bless — the diode)</label>`+
@@ -404,7 +415,7 @@ async function editSettings(){
 }
 async function saveSettings(){
   await fetch("/api/config",{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({depth:parseFloat($("s_depth").value),world_rounds:$("s_world").checked,mechanics:$("s_mech").checked,tone_steer:$("s_tone").checked,stream:$("s_stream").checked,scene_memory:$("s_mem").checked,memory_every:parseInt($("s_memevery").value),auto_consolidate:$("s_autocon").checked,auto_consolidate_apply:$("s_autocanon").checked,consolidate_every:parseInt($("s_conevery").value)})});
+    body:JSON.stringify({depth:parseFloat($("s_depth").value),world_rounds:$("s_world").checked,mechanics:$("s_mech").checked,tone_steer:$("s_tone").checked,stream:$("s_stream").checked,scene_memory:$("s_mem").checked,salience_decay:$("s_decay").checked,memory_every:parseInt($("s_memevery").value),auto_consolidate:$("s_autocon").checked,auto_consolidate_apply:$("s_autocanon").checked,consolidate_every:parseInt($("s_conevery").value)})});
   CFG.stream=$("s_stream").checked;
   addTurn("sys","session settings applied.");await loadState();
 }
@@ -454,7 +465,8 @@ async function renderReader(st){
     `<div class="kind" style="margin-top:14px">the plan · <a class="addlink" onclick="addThread()">＋ thread</a></div>`+
     (plan||`<span style="color:var(--muted);font-size:12px">nothing ripening yet</span>`)+ck+
     ((st.unconsolidated||0)>=6?`<div style="font-size:11px;color:var(--muted);margin-top:12px">◆ ${st.unconsolidated} turns un-consolidated${st.auto_consolidate?" · auto-folding":" — hit Consolidate to fold them into memory"}</div>`:"")+
-    ((st.pending_canon||0)>0?`<div style="font-size:11px;margin-top:8px"><a class="addlink" onclick="reviewPending()">◆ ${st.pending_canon} canon update(s) auto-fold parked — review →</a></div>`:"");
+    ((st.pending_canon||0)>0?`<div style="font-size:11px;margin-top:8px"><a class="addlink" onclick="reviewPending()">◆ ${st.pending_canon} canon update(s) auto-fold parked — review →</a></div>`:"")+
+    ((st.pending_reversal||0)>0?`<div style="font-size:11px;margin-top:6px"><a class="addlink" style="color:#e0a54a" onclick="reviewReversals()">◆ ${st.pending_reversal} feeling-flip(s) held — decide →</a></div>`:"");
   _setTab("tab_cont");$("detailwhat").textContent="";
 }
 
@@ -672,6 +684,51 @@ async function reviewPending(){
   const w=(r.written&&r.written.nodes)||[];
   addTurn("sys",`blessed ${w.length} canon update(s) into the world.`);
   await loadState();
+}
+async function reviewReversals(){
+  // contradiction-repair: a character's feeling FLIPPED sign; the auto-fold held it rather than
+  // overwrite an established feeling. bless = apply the flip · reject = keep the feeling.
+  const j=await (await fetch("/api/reversals")).json();
+  const rs=j.reversals||[];
+  if(!rs.length){addTurn("sys","no held feeling-flips to decide.");return;}
+  _detailMode("held feeling-flips");
+  const rows=rs.map(r=>{
+    const nm=(r.name||"").replace(/'/g,"\\'"), fd=(r.field||"disposition").replace(/'/g,"\\'");
+    return `<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:11px 0;border-top:1px solid var(--weft,#2d2740)">`+
+      `<div style="min-width:0"><b>${esc(r.name)}</b> <span style="color:var(--muted);font-size:11px">${esc(r.field)}</span>`+
+      `<div style="font-size:12.5px;margin-top:2px">${esc(r.old)} <span style="color:#e0a54a">→</span> ${esc(r.new)}</div></div>`+
+      `<div style="display:flex;gap:6px;flex-shrink:0"><button onclick="decideReversal('${nm}','${fd}',true)">bless</button>`+
+      `<button class="ghost" onclick="decideReversal('${nm}','${fd}',false)">reject</button></div></div>`;
+  }).join("");
+  $("reader").innerHTML=`<h2>held feeling-flips</h2><div class="kind">a character's feeling flipped sign — held rather than silently overwritten. bless applies it; reject keeps the established feeling.</div>`+rows;
+}
+async function decideReversal(name,field,bless){
+  const r=await (await fetch("/api/reversals/apply",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({name,field,bless})})).json();
+  addTurn("sys",(bless?(r.applied?"↩ flip applied — ":"nothing to apply for "):"✗ flip rejected; the feeling stands — ")+name);
+  await loadState();
+  if((r.reversals||[]).length) reviewReversals(); else showContinuity();
+}
+// the composed NPC interior (mind panel) — appended under a character card by openNode
+function _mindPanel(d){
+  if(!d||!d.name||d.is_player) return "";      // your own character isn't an NPC 'mind'
+  const proj=d.agenda_projected?` <span title="a low-rung NPC — this interior is projected for review; in play they get no live agenda" style="font-size:10px;color:var(--muted);border:1px solid var(--weft,#2d2740);border-radius:4px;padding:1px 5px;vertical-align:2px">projected</span>`:"";
+  let h=`<div class="memh" style="margin-top:16px">◔ interior${proj}</div>`;
+  h+=`<div class="crow"><span class="clabel">personhood</span> ${esc(d.tier)} · <span style="font-family:ui-monospace,monospace">${(d.rung||0).toFixed(2)}</span></div>`;
+  if(d.mood) h+=`<div class="crow"><span class="clabel">mood</span> ${esc(d.mood)}</div>`;
+  const ag=d.agenda||{};
+  if(ag.goal){ h+=`<div class="crow"><span class="clabel">goal</span> ${esc(ag.goal)}${ag.opposes?` <span style="color:var(--muted)">— held by ${esc(ag.opposes)}</span>`:""}</div>`;
+    if(ag.status) h+=`<div class="crow"><span class="clabel">pursuit</span> ${esc(ag.status)}</div>`; }
+  const mem=(rows,lab)=>rows&&rows.length?`<div class="memh" style="margin-top:10px">${lab}</div>`+rows.slice(0,5).map(r=>`<div class="ev" style="cursor:default"><span class="evk">${r.source==="world"?"~":"·"}</span>${esc(r.what)}</div>`).join(""):"";
+  h+=mem(d.remembers,"what they've done");
+  h+=mem(d.remembers_player,"what they remember of you");
+  return h;
+}
+async function doRecall(){
+  const q=($("recallq").value||"").trim(); if(!q) return;
+  $("recallout").innerHTML=`<div class="kind" style="margin-top:6px">searching the record…</div>`;
+  let hits=[];try{hits=(await (await fetch("/api/recall?q="+encodeURIComponent(q))).json()).results||[];}catch(e){}
+  $("recallout").innerHTML=hits.length?hits.map(h=>`<div style="margin-top:8px;font-size:12.5px"><b>turn ${h.turn}</b> · you: ${esc((h.player||"").slice(0,90))}<div style="color:#cbc6bc;margin-top:2px">→ ${esc((h.narrator||"").slice(0,180))}</div></div>`).join(""):`<div class="kind" style="margin-top:6px">nothing in the record matches that.</div>`;
 }
 
 $("imagine").addEventListener("click",async()=>{
