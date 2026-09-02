@@ -274,15 +274,12 @@ Respond with ONE json object:
   "threads_resolved": ["<id of an open thread the session ANSWERED, if any>"],
   "character_updates": [{"name": "an existing character", "disposition": "how they now feel toward the player, ONLY if it clearly shifted this session", "location": "the place they are now, ONLY if they moved this session"}],
   "reputation": [{"who": "a faction, group, or notable person", "delta": -1, "because": "the DEED this session that moved their regard for the player (a small integer -3..3; negative = worse)"}],
-  "events":  [{"what": "a concrete thing that HAPPENED this session — a beat worth remembering later, in past tense", "when": "(optional) the in-fiction time it happened ('the next morning', 'that night', 'days later') — ONLY if the prose states it", "who": ["the character name(s) who ACTED in this beat — the player and/or the NPCs involved, EXACTLY as named in canon"]}],
-  "world":   [{"subject": "a concrete THING or place whose state CHANGED this session (an object, a door, an item)", "attribute": "state|condition|location|holder|owner|contains", "value": "what is now TRUE of it (e.g. 'locked', 'burned', 'Wren', 'the vault')"}],
+  "events":  [{"what": "a concrete thing that HAPPENED this session — a beat worth remembering later, in past tense", "when": "(optional) the in-fiction time it happened ('the next morning', 'that night', 'days later') — ONLY if the prose states it", "who": ["the character name(s) who ACTED in this beat — the player and/or the NPCs involved, EXACTLY as named in canon"]}][[WORLD_LINE]],
   "summary": "one sentence on what changed"
 }
 Only open a thread for a genuine NEW dramatic question the session actually raised; only resolve \
 one it truly closed. In `events`, list what actually happened (grounded in the log, not invented); \
-give `when` only if the prose says so. In `world`, record only a concrete OBJECT/place state that \
-CHANGED and is now settled truth (a locked door, a burned letter, who holds an item) — not a feeling, \
-not an event, only the durable current state of a thing. If a section has nothing, use an empty list.
+give `when` only if the prose says so.[[WORLD_GUIDE]] If a section has nothing, use an empty list.
 
 PLAY LOG:
 %s
@@ -310,11 +307,20 @@ _SCHEMA = {
         "events": {"type": "array", "items": {"type": "object", "properties": {
             "what": {"type": "string"}, "when": {"type": "string"},
             "who": {"type": "array", "items": {"type": "string"}}}}},
-        "world": {"type": "array", "items": {"type": "object", "properties": {
-            "subject": {"type": "string"}, "attribute": {"type": "string"}, "value": {"type": "string"}}}},
         "summary": {"type": "string"},
     },
 }
+
+# the symbolic-object layer's proposal shape — added to the prompt + schema ONLY when the world_state
+# toggle is on (else consolidation is byte-identical to before: no world section, no _world ever written)
+_WORLD_LINE = (',\n  "world":   [{"subject": "a concrete THING or place whose state CHANGED this session '
+               '(an object, a door, an item)", "attribute": "state|condition|location|holder|owner|contains", '
+               '"value": "what is now TRUE of it (e.g. \'locked\', \'burned\', \'Wren\', \'the vault\')"}]')
+_WORLD_GUIDE = (" In `world`, record only a concrete OBJECT/place state that CHANGED and is now settled truth "
+                "(a locked door, a burned letter, who holds an item) — not a feeling, not an event, only the "
+                "durable current state of a thing.")
+_WORLD_SCHEMA_PROP = {"type": "array", "items": {"type": "object", "properties": {
+    "subject": {"type": "string"}, "attribute": {"type": "string"}, "value": {"type": "string"}}}}
 
 
 def propose(cfg: dict, session_lines: list[dict], existing_threads=None, world=None) -> dict:
@@ -337,9 +343,14 @@ def propose(cfg: dict, session_lines: list[dict], existing_threads=None, world=N
     roster_str = ("\n".join(f"- {n['name']} ({n['frontmatter'].get('kind', 'lore')})"
                             for n in canon.load_all(world)) or "(none yet)") if world is not None else "(none yet)"
     log_text = "\n".join(f"{e.get('role', '?')}: {e.get('text', '')}" for e in session_lines)
-    raw = llm.complete(_PROMPT % (open_str, roster_str, log_text), ccfg, max_tokens=1400, temperature=0.2,
+    # the world (symbolic-object) section is added to the prompt + grammar ONLY when world_state is on, so
+    # a game with the layer off gets the byte-identical archivist prompt + schema — and never writes _world.
+    on = bool(cfg.get("world_state"))
+    prompt = _PROMPT.replace("[[WORLD_LINE]]", _WORLD_LINE if on else "").replace("[[WORLD_GUIDE]]", _WORLD_GUIDE if on else "")
+    schema = {**_SCHEMA, "properties": {**_SCHEMA["properties"], "world": _WORLD_SCHEMA_PROP}} if on else _SCHEMA
+    raw = llm.complete(prompt % (open_str, roster_str, log_text), ccfg, max_tokens=1400, temperature=0.2,
                        response_format={"type": "json_schema",             # token-level grammar (enforced)
-                                        "json_schema": {"name": "consolidation", "schema": _SCHEMA}})
+                                        "json_schema": {"name": "consolidation", "schema": schema}})
     m = _JSON_RE.search(raw)
     if not m:
         raise ValueError(f"no JSON object in consolidation output: {raw[:200]}")

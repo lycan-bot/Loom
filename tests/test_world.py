@@ -4,7 +4,7 @@ through the consolidation diode. Offline, deterministic (unittest)."""
 import tempfile
 import unittest
 from pathlib import Path
-from loom import world, state, provenance, consolidate, narrate, config
+from loom import world, state, provenance, consolidate, narrate, config, llm
 
 
 def _sp():
@@ -129,6 +129,29 @@ class DiodeTest(unittest.TestCase):
         subs = [w["subject"] for w in norm["world"]]
         self.assertIn("the key", subs)                                  # real object kept
         self.assertNotIn("<a thing>", subs)                            # template echo dropped
+
+    def test_propose_gates_world_on_the_toggle(self):
+        # byte-identical-off: the world section reaches the archivist prompt + grammar ONLY when world_state on
+        cap = {}
+        orig = llm.complete
+
+        def fake(prompt, cfg, **kw):
+            cap["prompt"] = prompt
+            cap["schema"] = kw.get("response_format", {}).get("json_schema", {}).get("schema", {})
+            return '{"summary": "x"}'
+
+        llm.complete = fake
+        try:
+            consolidate.propose(dict(config.DEFAULTS), [{"role": "player", "text": "hi"}], [], world=None)
+            self.assertNotIn('"world"', cap["prompt"])                  # off → no world section…
+            self.assertNotIn("[[WORLD", cap["prompt"])                  # …and no leftover token
+            self.assertNotIn("world", cap["schema"].get("properties", {}))
+            on = dict(config.DEFAULTS); on["world_state"] = True
+            consolidate.propose(on, [{"role": "player", "text": "hi"}], [], world=None)
+            self.assertIn('"world"', cap["prompt"])                     # on → the world section is present
+            self.assertIn("world", cap["schema"].get("properties", {}))
+        finally:
+            llm.complete = orig
 
 
 class GroundingTest(unittest.TestCase):
