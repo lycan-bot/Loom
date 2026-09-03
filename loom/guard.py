@@ -142,7 +142,60 @@ def disposition_reversal(nodes, thr, ctx):
             for name, c in sorted(counts.items()) if c >= 2]
 
 
-TX_DETECTORS = [confabulated_entities, dead_but_active, disposition_reversal]   # consistency: (nodes, thr, ctx)
+# the symbolic-object layer feeds continuity: a subject the WORLD store marks terminally gone that the
+# story then contradicts. Unambiguous terminal VALUES only (a `state`/`condition` field, not free prose —
+# and 'gone' is dropped as ambiguous: left ≠ destroyed), so a tracked fact, never a guessed one.
+_TERMINAL_STATES = {"dead", "deceased", "slain", "killed", "fallen", "perished", "destroyed", "burned",
+                    "burnt", "shattered", "ruined", "razed", "demolished", "obliterated", "incinerated",
+                    "dissolved", "collapsed", "sunk", "sunken"}
+_TERMINAL_ATTRS = {"state", "condition", "status", "fate"}
+
+
+def world_dead_but_active(nodes, thr, ctx):
+    """A subject the WORLD store marks terminally gone (destroyed / dead / burned) that is still ACTIVE.
+    Two deterministic, structured signals — no prose parsing:
+      • STRONG (med): the subject acts as a `who` in a blessed episodic beat dated STRICTLY AFTER it was
+        marked gone (both clocks known) — a temporal contradiction the other detectors can't see, since a
+        canon death carries no timestamp but a world fact carries `since`;
+      • MENTION (low): a canon CHARACTER the world store marks terminal, still named in a recent turn.
+    The world layer's continuity contribution: a tracked terminal state the story then violates."""
+    spath = ctx.get("spath")
+    if not spath:
+        return []
+    from . import world as world_layer, episodic, extract
+    terminal = {}                                        # subject_norm -> (subject, value, since|None)
+    for f in world_layer.load(spath):
+        if world_layer._norm(f["attribute"]) in _TERMINAL_ATTRS and world_layer._norm(f["value"]) in _TERMINAL_STATES:
+            since = f.get("since")
+            terminal[world_layer._norm(f["subject"])] = (f["subject"], f["value"],
+                                                         since if isinstance(since, int) else None)
+    if not terminal:
+        return []
+    out, flagged = [], set()
+    for e in episodic.entries(spath):                    # STRONG: it acts in a beat AFTER it was marked gone
+        es = e.get("entry_start")
+        whos = e.get("who") if isinstance(e.get("who"), list) else []
+        for w in whos:
+            wn = world_layer._norm(w)
+            subj_val = terminal.get(wn)
+            if subj_val and wn not in flagged and isinstance(es, int) and isinstance(subj_val[2], int) and es > subj_val[2]:
+                out.append(Finding("med", "world-dead-but-active",
+                                   f"the world marks '{subj_val[0]}' {subj_val[1]}, but '{subj_val[0]}' acts in a "
+                                   "later beat — a continuity break (a dropped resurrection, or a stale world fact)"))
+                flagged.add(wn)
+    char_norms = {world_layer._norm(n["name"]) for n in nodes if n["frontmatter"].get("kind") == "character"}
+    present = ({world_layer._norm(p) for p in extract.present(_recent_text(ctx["tpath"]), ctx["world"])}
+               if ctx.get("tpath") else set())
+    for sn, (subj, val, _since) in terminal.items():     # MENTION: a canon char marked terminal, named recently
+        if sn not in flagged and sn in char_norms and sn in present:
+            out.append(Finding("low", "world-dead-but-active",
+                               f"the world marks '{subj}' {val}, but they are named in a recent turn — a stale "
+                               "record, or a resurrection the story dropped"))
+            flagged.add(sn)
+    return out
+
+
+TX_DETECTORS = [confabulated_entities, dead_but_active, disposition_reversal, world_dead_but_active]
 
 
 def check(world, threads_path, tpath=None, spath=None):

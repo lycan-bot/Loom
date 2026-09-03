@@ -107,6 +107,64 @@ class ConsistencyTest(unittest.TestCase):
         transcript.append(t, "player", "x")
         self.assertFalse(any(f.kind == "disposition-reversal" for f in self._check(camp, t)))
 
+    def test_world_terminal_then_acts_in_a_later_beat(self):
+        # the world store marks Varro slain (turn 2); he acts as a `who` in a LATER beat (turn 5) → med
+        from loom import world, episodic
+        camp = _camp(); sp = camp / "state.json"
+        world.set_fact(sp, "Varro", "state", "slain", since=2)
+        episodic.record(sp, [{"what": "Varro cuts down the guard", "who": ["Varro"]}], entry_start=5, source="play")
+        t = camp / "t.jsonl"; transcript.append(t, "player", "x")
+        fs = self._check(camp, t)
+        self.assertTrue(any(f.kind == "world-dead-but-active" and "Varro" in f.message and f.severity == "med"
+                            for f in fs))
+
+    def test_world_terminal_acting_before_death_not_flagged(self):
+        # he acted BEFORE being marked slain (turn 2 < turn 5) — no contradiction, must stay quiet
+        from loom import world, episodic
+        camp = _camp(); sp = camp / "state.json"
+        world.set_fact(sp, "Varro", "state", "slain", since=5)
+        episodic.record(sp, [{"what": "Varro cuts down the guard", "who": ["Varro"]}], entry_start=2, source="play")
+        t = camp / "t.jsonl"; transcript.append(t, "player", "x")
+        self.assertFalse(any(f.kind == "world-dead-but-active" for f in self._check(camp, t)))
+
+    def test_non_terminal_world_state_not_flagged(self):
+        # a locked gate is not a TERMINAL state — acting on it later is normal, never flagged
+        from loom import world, episodic
+        camp = _camp(); sp = camp / "state.json"
+        world.set_fact(sp, "the gate", "state", "locked", since=2)
+        episodic.record(sp, [{"what": "the gate is opened", "who": ["the gate"]}], entry_start=5, source="play")
+        t = camp / "t.jsonl"; transcript.append(t, "player", "x")
+        self.assertFalse(any(f.kind == "world-dead-but-active" for f in self._check(camp, t)))
+
+    def test_world_terminal_character_mentioned_recently_low(self):
+        # a canon character the world store marks slain, still named in a recent turn → low (weaker mention signal)
+        from loom import world
+        camp = _camp(); sp = camp / "state.json"
+        canon.write_node(camp / "world", "Varro", "a knight", {"kind": "character"})
+        world.set_fact(sp, "Varro", "state", "slain", since=2)
+        t = camp / "t.jsonl"; transcript.append(t, "player", "x")
+        transcript.append(t, "narrator", "Varro raises his sword and charges.")
+        fs = self._check(camp, t)
+        self.assertTrue(any(f.kind == "world-dead-but-active" and f.severity == "low" for f in fs))
+
+    def test_destroyed_object_neither_acting_nor_mentioned_is_clean(self):
+        # the false-positive guard: a burned ledger that no one acts as or names must not fire
+        from loom import world
+        camp = _camp(); sp = camp / "state.json"
+        world.set_fact(sp, "the old ledger", "condition", "burned", since=2)
+        t = camp / "t.jsonl"; transcript.append(t, "player", "x")
+        transcript.append(t, "narrator", "You walk on, thinking of nothing in particular.")
+        self.assertFalse(any(f.kind == "world-dead-but-active" for f in self._check(camp, t)))
+
+    def test_world_terminal_no_timestamp_skips_the_temporal_signal(self):
+        # an operator-set fact carries no `since` → the temporal (acts-later) signal can't order it → no med flag
+        from loom import world, episodic
+        camp = _camp(); sp = camp / "state.json"
+        world.set_fact(sp, "Varro", "state", "slain")               # since=None
+        episodic.record(sp, [{"what": "Varro cuts down the guard", "who": ["Varro"]}], entry_start=5, source="play")
+        t = camp / "t.jsonl"; transcript.append(t, "player", "x")
+        self.assertFalse(any(f.kind == "world-dead-but-active" and f.severity == "med" for f in self._check(camp, t)))
+
     def test_structural_detectors_run_without_a_transcript(self):
         # backward compat: check() with no tpath still runs the structural detectors and nothing crashes
         camp = _camp()
