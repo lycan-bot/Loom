@@ -64,7 +64,22 @@ def bloated_node(nodes, thr):
             for n in sorted(big, key=lambda n: -len(n["body"]))[:5]]
 
 
-DETECTORS = [dangling_links, thread_unknown_entities, orphan_nodes, bloated_node]   # structural: (nodes, thr)
+_STALE_READY_BEATS = 8    # a thread 'ready' this many player-turns without paying off — a dropped/overdue arc
+
+
+def stale_thread(nodes, thr):
+    """A dramatic question the director left READY for many turns without paying it off — a forgotten or
+    overdue arc. Advisory (low, low-noise): only a thread ready well past the point it should have fired,
+    so the operator resolves it or lets it pay off, instead of it lingering unanswered. Reads the
+    `ready_beats` staleness counter threads.advance keeps (resolving a thread clears it)."""
+    return [Finding("low", "stale-thread",
+                    f"the thread '{t.question}' has been ready to pay off for {int(getattr(t, 'ready_beats', 0) or 0)} "
+                    "turns — resolve it or let it fire, or it lingers unanswered")
+            for t in thr
+            if getattr(t, "status", "") == "ready" and int(getattr(t, "ready_beats", 0) or 0) >= _STALE_READY_BEATS]
+
+
+DETECTORS = [dangling_links, thread_unknown_entities, orphan_nodes, bloated_node, stale_thread]   # structural: (nodes, thr)
 
 
 # --- consistency detectors (storyteller-memory Phase 4): transcript-aware, so they catch the story

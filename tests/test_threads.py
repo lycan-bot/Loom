@@ -30,6 +30,17 @@ class ThreadsTest(unittest.TestCase):
         self.assertAlmostEqual(t.readiness, 0.35, places=6)
         self.assertEqual(t.status, "ripening")
 
+    def test_ready_beats_accrues_while_ready_and_resets_below(self):
+        # staleness: count consecutive beats spent 'ready'; a not-ready beat resets it to 0
+        t = Thread("x", "q", status="ripening", readiness=0.65, entities=["Harbor"])
+        threads.advance([t], ["Harbor"])                      # 0.65 + 0.30 = 0.95 → ready → 1 beat
+        self.assertEqual((t.status, t.ready_beats), ("ready", 1))
+        threads.advance([t], [])                              # still ready (drift keeps it ≥0.7) → 2
+        self.assertEqual(t.ready_beats, 2)
+        t.status, t.readiness = "ripening", 0.4              # dropped below ready (e.g. after an author edit)
+        threads.advance([t], [])                              # ripening → counter resets
+        self.assertEqual(t.ready_beats, 0)
+
     def test_clock_ticks_down_to_ready(self):
         t = Thread("s", "a storm", kind="clock", status="ripening", clock=2, entities=["World"])
         threads.advance([t], [])

@@ -44,6 +44,7 @@ class Thread:
     payoff: str = ""                    # what advancing / answering it looks like (if unstaged)
     stages: list = field(default_factory=list)   # optional arc: successive payoff beats
     stage: int = 0                      # position along the arc
+    ready_beats: int = 0                # consecutive player-turns spent 'ready' without paying off (staleness)
 
 
 def load(path) -> list:
@@ -73,6 +74,10 @@ def load(path) -> list:
                 th.stage = max(0, int(th.stage))     # a negative stage would index a stages arc from the end
             except (TypeError, ValueError):
                 th.stage = 0
+            try:
+                th.ready_beats = max(0, int(th.ready_beats))
+            except (TypeError, ValueError):
+                th.ready_beats = 0
             if not isinstance(th.entities, list):
                 th.entities = []
             if not isinstance(th.stages, list):
@@ -114,13 +119,18 @@ def advance(threads, scene_names) -> list:
                     th.status, th.readiness = "ready", 1.0
                 elif th.status != "ready":
                     th.status = "ripening"
+            th.ready_beats = th.ready_beats + 1 if th.status == "ready" else 0
             continue
         near = any(e in scene for e in th.entities)
         if th.status == "dormant":
             if near:
                 th.status, th.readiness = "seeded", max(th.readiness, 0.30)
                 newly_seeded.append(th)
+            th.ready_beats = 0                            # dormant/seeded is not 'ready' — no staleness accrues
             continue
         th.readiness = min(1.0, th.readiness + (NEAR if near else DRIFT))
         th.status = "ready" if th.readiness >= READY else "ripening"
+        # staleness: count consecutive beats spent READY without paying off (the director settling it → resolved
+        # clears this; a resolved thread is skipped above). A long count = an overdue / forgotten arc.
+        th.ready_beats = th.ready_beats + 1 if th.status == "ready" else 0
     return newly_seeded
