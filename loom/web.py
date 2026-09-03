@@ -160,6 +160,11 @@ def make_handler(cfg: dict):
                 facts = world_state.load(spath)
                 return self._send(200, {"enabled": bool(cfg.get("world_state")),
                                         "subjects": world_state.by_subject(facts), "count": len(facts)})
+            if u.path == "/api/ablation":
+                # the retrieval-miss instrument: per-entity counts of canon nodes the player named that
+                # retrieval didn't surface — the evidence base for the embeddings kill-criterion.
+                from . import ablation
+                return self._send(200, {"enabled": bool(cfg.get("retrieval_log")), **ablation.report(spath)})
             if u.path == "/api/check":
                 fs = guard.check(world, spath.parent / "threads.json", tpath=tpath, spath=spath)
                 return self._send(200, {"findings": [{"severity": f.severity, "kind": f.kind,

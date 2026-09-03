@@ -7,7 +7,7 @@ transcript only carries the last few beats of conversational flow.
 from __future__ import annotations
 import threading
 from pathlib import Path
-from . import llm, retrieve, transcript, state, pacing, threads, director, character, mechanics, referee, depth, player, setting, tone, undo, reputation, scene_memory, steer, consolidate, inbox, recall, episodic, salience, npc_memory, agenda, npc
+from . import llm, retrieve, transcript, state, pacing, threads, director, character, mechanics, referee, depth, player, setting, tone, undo, reputation, scene_memory, steer, consolidate, inbox, recall, episodic, salience, npc_memory, agenda, npc, ablation
 from . import world as world_state    # aliased: `world` is already a param name here (the canon dir Path)
 from . import prompt_security as sec
 
@@ -189,6 +189,11 @@ def _prepare(player_input: str, cfg: dict, tpath: Path, world: Path, spath: Path
     # fallback returns all nodes at score 0.0 to ground a vague turn — but those must NOT
     # count as "near", or threads would ripen on the player's least-engaged input.
     scene_names = [n["name"] for n in nodes if n.get("score", 0.0) > 0]
+    if cfg.get("retrieval_log"):                      # the ablation instrument: log a canon entity the player
+        try:                                          # NAMED that retrieval didn't surface (evidence, off → silent)
+            ablation.record(spath, player_input, set(scene_names), world)
+        except Exception:
+            pass
     # where the player is now — the top grounded PLACE in the scene, persisted across turns so a
     # place-less beat keeps the last known location (drives the world round's co-located routing)
     scene_place = next((n["name"] for n in nodes

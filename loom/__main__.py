@@ -342,6 +342,32 @@ def cmd_world_state(cfg, arg):
     print("world-state grounding " + ("ON — the narrator now grounds on tracked object facts." if on else "OFF."))
 
 
+def cmd_ablation(cfg):
+    """The retrieval-miss report: canon entities the player named that retrieval didn't surface, per entity.
+    The evidence base for the embeddings kill-criterion ('a node that mattered, twice')."""
+    from . import ablation
+    _, _world, spath = _paths(cfg)
+    r = ablation.report(spath)
+    if not cfg.get("retrieval_log"):
+        print("retrieval logging is OFF — 'loom retrieval-log on' to gather evidence.\n")
+    if not r["miss_turns"]:
+        print("no retrieval misses logged — BM25 has surfaced every named entity so far "
+              "(the evidence says embeddings aren't earning their cost yet).")
+        return
+    print(f"retrieval misses: {r['miss_turns']} turn(s), {r['distinct_missed']} distinct entit(ies)")
+    for name, c in r["by_entity"].items():
+        mark = "  ⚠ repeated" if c >= 2 else ""
+        print(f"  {c}× {name}{mark}")
+    if r["kill_criterion_met"]:
+        print(f"\nkill-criterion MET — {', '.join(r['repeated_misses'])} missed 2×+; semantic retrieval is worth considering.")
+
+
+def cmd_retrieval_log(cfg, arg):
+    on = arg == "on"
+    config.save({"retrieval_log": on})
+    print("retrieval logging " + ("ON — misses accrue in ablation_log.jsonl ('loom ablation' to view)." if on else "OFF."))
+
+
 def cmd_undo(cfg):
     tpath, _world, spath = _paths(cfg)
     print("↩ took back the last turn." if undo.undo(tpath, spath) else "nothing to undo.")
@@ -550,6 +576,10 @@ def main(argv=None):
         cmd_facts(cfg)
     elif cmd == "world-state" and len(argv) > 1:
         cmd_world_state(cfg, argv[1])
+    elif cmd == "ablation":
+        cmd_ablation(cfg)
+    elif cmd == "retrieval-log" and len(argv) > 1:
+        cmd_retrieval_log(cfg, argv[1])
     elif cmd == "undo":
         cmd_undo(cfg)
     elif cmd == "reputation":

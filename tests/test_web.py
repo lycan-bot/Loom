@@ -82,6 +82,12 @@ class WebTest(unittest.TestCase):
         self.assertIsInstance(d["subjects"], list)
         self.assertIsInstance(d["count"], int)
 
+    def test_ablation_endpoint_shape(self):
+        d = self._get("/api/ablation")                       # the retrieval-miss instrument (read-only)
+        self.assertIn("enabled", d)
+        self.assertIsInstance(d["by_entity"], dict)
+        self.assertIn("kill_criterion_met", d)
+
     def test_why_returns_the_provenance_ledger(self):
         d = self._get("/api/why")                    # whole ledger (read-only)
         self.assertIn("changes", d)
