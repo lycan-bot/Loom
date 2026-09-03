@@ -9,6 +9,7 @@ import threading
 from pathlib import Path
 from . import llm, retrieve, transcript, state, pacing, threads, director, character, mechanics, referee, depth, player, setting, tone, undo, reputation, scene_memory, steer, consolidate, inbox, recall, episodic, salience, npc_memory, agenda, npc, ablation
 from . import world as world_state    # aliased: `world` is already a param name here (the canon dir Path)
+from . import npc_standing
 from . import prompt_security as sec
 
 
@@ -230,6 +231,7 @@ def _prepare(player_input: str, cfg: dict, tpath: Path, world: Path, spath: Path
               + _remembers_you_clause(nodes, world, tpath, spath, cfg, tiers)
               + _pursues_clause(nodes, world, tpath, spath, cfg, tiers)
               + _world_clause(nodes, spath, player_input, cfg)
+              + (npc_standing.clause(npc_standing.load(st), scene_names) if cfg.get("npc_standing") else "")
               + (mechanics.clause(mechanics.roll()) if cfg.get("mechanics") else "")
               + depth.disposition_clause(cfg.get("depth", 0)))
 

@@ -409,6 +409,7 @@ async function editSettings(){
     `<label>realness depth (mirror → other)</label><select id="s_depth">`+opt(0,"0 · mirror (the world agrees)")+opt(0.5,"0.5 · in between")+opt(1,"1 · other (the world resists)")+`</select>`+
     `<label style="display:block;margin-top:8px"><input type="checkbox" id="s_world" ${c.world_rounds?"checked":""}> show the world round each turn (major NPCs take turns)</label>`+
     `<label style="display:block"><input type="checkbox" id="s_worldstate" ${c.world_state?"checked":""}> world state — track object/place facts (a door locked, who holds an item) and ground the story on them</label>`+
+    `<label style="display:block"><input type="checkbox" id="s_npcstanding" ${c.npc_standing?"checked":""}> NPC relationships — track how characters regard each other (allies cooperate, rivals clash)</label>`+
     `<label style="display:block"><input type="checkbox" id="s_mech" ${c.mechanics?"checked":""}> dice — an impartial d20 on uncertain actions</label>`+
     `<label style="display:block"><input type="checkbox" id="s_tone" ${c.tone_steer?"checked":""}> dynamic tone — the narrator's register follows the scene (needs the tone vector served)</label>`+
     `<label style="display:block"><input type="checkbox" id="s_stream" ${c.stream?"checked":""}> stream narration — the story appears word by word as it's written</label>`+
@@ -422,7 +423,7 @@ async function editSettings(){
 }
 async function saveSettings(){
   await fetch("/api/config",{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({depth:parseFloat($("s_depth").value),world_rounds:$("s_world").checked,world_state:$("s_worldstate").checked,mechanics:$("s_mech").checked,tone_steer:$("s_tone").checked,stream:$("s_stream").checked,scene_memory:$("s_mem").checked,salience_decay:$("s_decay").checked,memory_every:parseInt($("s_memevery").value),auto_consolidate:$("s_autocon").checked,auto_consolidate_apply:$("s_autocanon").checked,consolidate_every:parseInt($("s_conevery").value)})});
+    body:JSON.stringify({depth:parseFloat($("s_depth").value),world_rounds:$("s_world").checked,world_state:$("s_worldstate").checked,npc_standing:$("s_npcstanding").checked,mechanics:$("s_mech").checked,tone_steer:$("s_tone").checked,stream:$("s_stream").checked,scene_memory:$("s_mem").checked,salience_decay:$("s_decay").checked,memory_every:parseInt($("s_memevery").value),auto_consolidate:$("s_autocon").checked,auto_consolidate_apply:$("s_autocanon").checked,consolidate_every:parseInt($("s_conevery").value)})});
   CFG.stream=$("s_stream").checked;
   addTurn("sys","session settings applied.");await loadState();
 }
@@ -749,6 +750,10 @@ function _mindPanel(d){
   const mem=(rows,lab)=>rows&&rows.length?`<div class="memh" style="margin-top:10px">${lab}</div>`+rows.slice(0,5).map(r=>`<div class="ev" style="cursor:default"><span class="evk">${r.source==="world"?"~":"·"}</span>${esc(r.what)}</div>`).join(""):"";
   h+=mem(d.remembers,"what they've done");
   h+=mem(d.remembers_player,"what they remember of you");
+  if(d.standings&&d.standings.length){
+    h+=`<div class="memh" style="margin-top:10px">how they regard others</div>`+
+       d.standings.map(s=>`<div class="crow"><span class="clabel">${esc(s.other)}</span> ${esc(s.label)}${s.last?` <span style="color:var(--muted)">— ${esc(s.last)}</span>`:""}</div>`).join("");
+  }
   return h;
 }
 async function doRecall(){

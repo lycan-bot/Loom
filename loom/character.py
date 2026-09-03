@@ -63,7 +63,7 @@ def interior(world, tpath, spath, cfg, node) -> dict:
     from BLESSED signals (nothing stored, nothing self-propagating). Shared by GET /api/npc and the
     `loom npc` CLI. For INSPECTION the agenda/mood compose at a 0.5 display floor even for a low-rung NPC;
     `agenda_projected` flags that so it can't be misread as the live budget (the live gate still holds)."""
-    from . import salience, agenda, mood, npc_memory, npc, threads, player, reputation, state
+    from . import salience, agenda, mood, npc_memory, npc, threads, player, reputation, state, npc_standing
     name, fm = node["name"], node["frontmatter"]
     depth = float(cfg.get("depth", 0) or 0)
     tier = salience.tiers_by_name(world, tpath, spath).get(name, "side")
@@ -71,8 +71,10 @@ def interior(world, tpath, spath, cfg, node) -> dict:
     m = npc.moral_read(str(fm.get("wants", "")), str(fm.get("bound", "")))
     thread_list = threads.load(Path(spath).parent / "threads.json")
     pursuit = agenda.pursuit(name, m, thread_list, spath, max(rung, 0.5))
+    st_all = state.load(spath)
+    standings = npc_standing.of(npc_standing.load(st_all), name)   # how this NPC stands with the OTHERS (empty when off)
     standing = 0
-    rep_e = reputation.load(state.load(spath)).get(name)
+    rep_e = reputation.load(st_all).get(name)
     if isinstance(rep_e, dict):
         try:
             standing = int(rep_e.get("standing", 0) or 0)
@@ -87,4 +89,5 @@ def interior(world, tpath, spath, cfg, node) -> dict:
             "agenda_projected": bool(rung < salience.AGENDA_RUNG), "card": card(node),
             "mood": mood.label(fm.get("disposition", ""), standing, pursuit.get("status", "")),
             "agenda": pursuit, "remembers": _mem(npc_memory.recall(spath, name, k=6, blessed_only=False)),
-            "remembers_player": _mem(npc_memory.shared(spath, name, pc, k=6, blessed_only=False)) if pc and pc != name else []}
+            "remembers_player": _mem(npc_memory.shared(spath, name, pc, k=6, blessed_only=False)) if pc and pc != name else [],
+            "standings": standings}

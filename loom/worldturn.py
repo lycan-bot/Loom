@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from . import canon, npc, llm, state, player, retrieve, consolidate, transcript, config, episodic, salience, agenda, threads, mood, reputation
+from . import canon, npc, llm, state, player, retrieve, consolidate, transcript, config, episodic, salience, agenda, threads, mood, reputation, npc_standing
 from . import prompt_security as sec
 
 _JSON_RE = re.compile(r"\{[\s\S]*\}")
@@ -200,7 +200,9 @@ def run(cfg, world, exclude=(), tpath=None, spath=None) -> dict:
     # each group's line — enriched with the NPC's AGENDA (goal + pursuit state + BLESSED memory) when they
     # have the personhood for one; the focal character of a high-rung group DELIBERATES (think→act) first
     delib_budget = 2                                  # bound the extra 'think' calls to the top groups
-    rep = reputation.load(state.load(spath)) if enrich else {}
+    _st = state.load(spath) if enrich else {}
+    rep = reputation.load(_st) if enrich else {}
+    ns_store = npc_standing.load(_st) if (enrich and cfg.get("npc_standing")) else {}   # NPC↔NPC standing (off → {})
 
     def _standing(nm):
         e = rep.get(nm)
@@ -222,6 +224,13 @@ def run(cfg, world, exclude=(), tpath=None, spath=None) -> dict:
             else:
                 parts.append(f"{name} ({m.because})")
         block = f"- At {g[0][2] or 'parts unknown'}: " + " | ".join(parts)
+        if ns_store and len(g) >= 2:                  # ground cooperation/conflict in tracked standing, not a guess
+            gnames = [n["name"] for n, _m, _l in g]
+            rels = [f"{gnames[i]} and {gnames[j]} are {npc_standing.label(s)}"
+                    for i in range(len(gnames)) for j in range(i + 1, len(gnames))
+                    if (s := npc_standing.between(ns_store, gnames[i], gnames[j])) != 0]
+            if rels:
+                block += "\n    (between them: " + "; ".join(rels) + ")"
         if enrich and delib_budget > 0:
             focal = max(g, key=lambda e: rung_of.get(e[0]["name"], 0))
             fname = focal[0]["name"]

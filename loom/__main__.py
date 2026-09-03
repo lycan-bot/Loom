@@ -99,7 +99,8 @@ def cmd_consolidate(cfg, auto):
 
     written = consolidate.apply(proposals, world, spath, approve,   # deed-key + combined watermark save,
                                 deed_window=(total - len(lines), total), watermark=total,   # matching the drain path
-                                world_state=bool(cfg.get("world_state")))
+                                world_state=bool(cfg.get("world_state")),
+                                npc_standing_on=bool(cfg.get("npc_standing")))
     print(f"\nwrote {len(written['nodes'])} node(s), {len(written['state'])} state, "
           f"{len(written['threads'])} thread(s), {len(written['resolved'])} resolved, "
           f"{len(written['dispositions'])} disposition(s), {len(written['locations'])} move(s), "

@@ -13,6 +13,7 @@ import re
 from pathlib import Path
 from . import llm, canon, state, threads, reputation, transcript, inbox, episodic, provenance
 from . import world as world_layer    # aliased: `world` is the canon-dir Path param in apply()/etc.
+from . import npc_standing
 
 _JSON_RE = re.compile(r"\{[\s\S]*\}")
 
@@ -215,6 +216,18 @@ def _normalize(proposals: dict) -> dict:
                 and world_layer.keyable(subj, attr)):
             world_facts.append({"subject": subj, "attribute": attr, "value": val})
 
+    npc_std = []
+    for s in _dicts(proposals.get("npc_standing")):
+        a, b = _s(s.get("a")).strip(), _s(s.get("b")).strip()
+        try:
+            delta = int(s.get("delta"))
+        except (TypeError, ValueError):
+            continue
+        # a real inter-NPC delta needs two DISTINCT keyable people and a non-zero shift (pair_key rejects
+        # same/empty), and neither name a template echo
+        if delta != 0 and _no_template(a) and _no_template(b) and npc_standing.pair_key(a, b) is not None:
+            npc_std.append({"a": a, "b": b, "delta": max(-3, min(3, delta)), "because": _s(s.get("because")).strip()})
+
     resolved_raw = proposals.get("threads_resolved")
     return {
         "nodes": nodes,
@@ -225,6 +238,7 @@ def _normalize(proposals: dict) -> dict:
         "reputation": rep,
         "events": events,
         "world": world_facts,
+        "npc_standing": npc_std,
     }
 
 
@@ -275,12 +289,12 @@ Respond with ONE json object:
   "threads_resolved": ["<id of an open thread the session ANSWERED, if any>"],
   "character_updates": [{"name": "an existing character", "disposition": "how they now feel toward the player, ONLY if it clearly shifted this session", "location": "the place they are now, ONLY if they moved this session"}],
   "reputation": [{"who": "a faction, group, or notable person", "delta": -1, "because": "the DEED this session that moved their regard for the player (a small integer -3..3; negative = worse)"}],
-  "events":  [{"what": "a concrete thing that HAPPENED this session — a beat worth remembering later, in past tense", "when": "(optional) the in-fiction time it happened ('the next morning', 'that night', 'days later') — ONLY if the prose states it", "who": ["the character name(s) who ACTED in this beat — the player and/or the NPCs involved, EXACTLY as named in canon"]}][[WORLD_LINE]],
+  "events":  [{"what": "a concrete thing that HAPPENED this session — a beat worth remembering later, in past tense", "when": "(optional) the in-fiction time it happened ('the next morning', 'that night', 'days later') — ONLY if the prose states it", "who": ["the character name(s) who ACTED in this beat — the player and/or the NPCs involved, EXACTLY as named in canon"]}][[WORLD_LINE]][[NPC_LINE]],
   "summary": "one sentence on what changed"
 }
 Only open a thread for a genuine NEW dramatic question the session actually raised; only resolve \
 one it truly closed. In `events`, list what actually happened (grounded in the log, not invented); \
-give `when` only if the prose says so.[[WORLD_GUIDE]] If a section has nothing, use an empty list.
+give `when` only if the prose says so.[[WORLD_GUIDE]][[NPC_GUIDE]] If a section has nothing, use an empty list.
 
 PLAY LOG:
 %s
@@ -323,6 +337,17 @@ _WORLD_GUIDE = (" In `world`, record only a concrete OBJECT/place state that CHA
 _WORLD_SCHEMA_PROP = {"type": "array", "items": {"type": "object", "properties": {
     "subject": {"type": "string"}, "attribute": {"type": "string"}, "value": {"type": "string"}}}}
 
+# NPC↔NPC standing — added to the prompt + grammar ONLY when the npc_standing toggle is on (else the
+# archivist prompt/schema are byte-identical and _npc_standing is never written)
+_NPC_LINE = (',\n  "npc_standing": [{"a": "one character", "b": "another character", "delta": 1, '
+             '"because": "the thing BETWEEN them this session that moved how they regard EACH OTHER (a small '
+             'integer -3..3; negative = worse) — allies who cooperated, rivals who clashed"}]')
+_NPC_GUIDE = (" In `npc_standing`, record only how two NAMED characters now regard EACH OTHER after something "
+              "between THEM this session — not their feelings toward the player (that is `character_updates`/"
+              "`reputation`), and only if it clearly shifted.")
+_NPC_SCHEMA_PROP = {"type": "array", "items": {"type": "object", "properties": {
+    "a": {"type": "string"}, "b": {"type": "string"}, "delta": {"type": "integer"}, "because": {"type": "string"}}}}
+
 
 def propose(cfg: dict, session_lines: list[dict], existing_threads=None, world=None) -> dict:
     """Ask the model for proposed canon/state/thread changes. Returns a dict; writes nothing.
@@ -346,9 +371,17 @@ def propose(cfg: dict, session_lines: list[dict], existing_threads=None, world=N
     log_text = "\n".join(f"{e.get('role', '?')}: {e.get('text', '')}" for e in session_lines)
     # the world (symbolic-object) section is added to the prompt + grammar ONLY when world_state is on, so
     # a game with the layer off gets the byte-identical archivist prompt + schema — and never writes _world.
-    on = bool(cfg.get("world_state"))
-    prompt = _PROMPT.replace("[[WORLD_LINE]]", _WORLD_LINE if on else "").replace("[[WORLD_GUIDE]]", _WORLD_GUIDE if on else "")
-    schema = {**_SCHEMA, "properties": {**_SCHEMA["properties"], "world": _WORLD_SCHEMA_PROP}} if on else _SCHEMA
+    world_on, npc_on = bool(cfg.get("world_state")), bool(cfg.get("npc_standing"))
+    prompt = (_PROMPT.replace("[[WORLD_LINE]]", _WORLD_LINE if world_on else "")
+                     .replace("[[WORLD_GUIDE]]", _WORLD_GUIDE if world_on else "")
+                     .replace("[[NPC_LINE]]", _NPC_LINE if npc_on else "")
+                     .replace("[[NPC_GUIDE]]", _NPC_GUIDE if npc_on else ""))
+    props = dict(_SCHEMA["properties"])
+    if world_on:
+        props["world"] = _WORLD_SCHEMA_PROP
+    if npc_on:
+        props["npc_standing"] = _NPC_SCHEMA_PROP
+    schema = {**_SCHEMA, "properties": props} if (world_on or npc_on) else _SCHEMA
     raw = llm.complete(prompt % (open_str, roster_str, log_text), ccfg, max_tokens=1400, temperature=0.2,
                        response_format={"type": "json_schema",             # token-level grammar (enforced)
                                         "json_schema": {"name": "consolidation", "schema": schema}})
@@ -357,13 +390,14 @@ def propose(cfg: dict, session_lines: list[dict], existing_threads=None, world=N
         raise ValueError(f"no JSON object in consolidation output: {raw[:200]}")
     data = _loads_lenient(m.group(0))
     for key, default in (("nodes", []), ("state", {}), ("threads_new", []), ("threads_resolved", []),
-                         ("character_updates", []), ("reputation", []), ("events", []), ("world", []), ("summary", "")):
+                         ("character_updates", []), ("reputation", []), ("events", []), ("world", []),
+                         ("npc_standing", []), ("summary", "")):
         data.setdefault(key, default)
     return data
 
 
 def apply(proposals: dict, world: Path, state_path: Path, approve,
-          deed_window=None, watermark=None, hold_reversals=False, world_state=False) -> dict:
+          deed_window=None, watermark=None, hold_reversals=False, world_state=False, npc_standing_on=False) -> dict:
     """Write approved proposals to canon + state. `approve(kind, name, payload) -> bool` is
     called for EVERY change; nothing is written unless it returns True — the diode, the operator's
     hand between improv and canon.
@@ -381,7 +415,7 @@ def apply(proposals: dict, world: Path, state_path: Path, approve,
     p = _normalize(proposals)
     written: dict[str, list] = {"nodes": [], "state": [], "threads": [], "resolved": [],
                                 "dispositions": [], "locations": [], "reputation": [], "events": [],
-                                "world": [], "held_reversals": []}
+                                "world": [], "npc_standing": [], "held_reversals": []}
     held_revs = []               # functional-field FLIPS the auto-drain proposed w/o operator authority → hold
     for node in p["nodes"]:
         name, body, fields = node["name"], node["body"], node["fields"]
@@ -451,6 +485,30 @@ def apply(proposals: dict, world: Path, state_path: Path, approve,
         st[world_layer._KEY] = new_facts
         written["world"].append(subj)
         changed = True
+    # NPC↔NPC standing: additive like reputation, so it needs the SAME re-fold idempotency (a re-proposed
+    # window must not double-shift a standing) — each deed keyed by (pair, window). Gated on the toggle too,
+    # so a stale fold drained while off writes nothing (byte-identical-off, like the world block).
+    if npc_standing_on and p["npc_standing"]:
+        ns_store = st.get(npc_standing._KEY)
+        ns_store = ns_store if isinstance(ns_store, dict) else {}
+        prev_ns = [d for d in (st.get("_npc_standing_applied") or []) if isinstance(d, str)]
+        seen_ns, new_ns = set(prev_ns), []
+        for s in p["npc_standing"]:
+            pk = npc_standing.pair_key(s["a"], s["b"])
+            did = (hashlib.sha1(f"{pk}|{int(deed_window[0])}|{int(deed_window[1])}".encode("utf-8")).hexdigest()[:16]
+                   if pk and deed_window is not None else None)
+            if did is not None and did in seen_ns:
+                continue                                  # this window's delta for the pair was already folded
+            if approve("npc_standing", f"{s['a']} & {s['b']}", s):
+                npc_standing.apply_delta(ns_store, s["a"], s["b"], s["delta"], s["because"])
+                written["npc_standing"].append(f"{s['a']} & {s['b']}")
+                changed = True
+                if did is not None:
+                    new_ns.append(did)
+        st[npc_standing._KEY] = ns_store
+        if new_ns:
+            st["_npc_standing_applied"] = (prev_ns + new_ns)[-_REP_APPLIED_CAP:]
+            changed = True
     # reputation: shift each blessed standing (the diode gates each deed) and log the deed that moved
     # it — stored in the same state under _rep so it commits atomically with the rest of the state.
     # A deed already folded (its window-keyed id is in _rep_applied) is skipped: additive apply_delta
@@ -687,7 +745,7 @@ def apply_reversal(world: Path, spath, name, field, approve=None) -> bool:
     return applied
 
 
-def _fold_proposals(proposals, world, spath, start, end, apply_canon, world_state=False):
+def _fold_proposals(proposals, world, spath, start, end, apply_canon, world_state=False, npc_standing_on=False):
     """Fold ONE window's proposals into the durable stores — the shared body of both the synchronous
     `auto()` and the background-then-drain path. The DIODE: by default only low-risk structured
     continuity (facts, reputation, disposition/location, thread ripening) applies; canon nodes + thread
@@ -712,7 +770,7 @@ def _fold_proposals(proposals, world, spath, start, end, apply_canon, world_stat
     # operator instead of auto-overwriting an established feeling (contradiction-repair). apply_canon
     # True = an operator-authorised fold → apply directly.
     written = apply(proposals, world, spath, approve, deed_window=(start, end), watermark=end,
-                    hold_reversals=not apply_canon, world_state=world_state)
+                    hold_reversals=not apply_canon, world_state=world_state, npc_standing_on=npc_standing_on)
     return written, pending_names
 
 
@@ -730,7 +788,8 @@ def auto(cfg, tpath, world, spath, apply_canon: bool = False):
     except Exception as e:
         return {"error": str(e), "new": len(new_lines)}
     written, pending_names = _fold_proposals(proposals, world, spath, wm, total, apply_canon,
-                                             world_state=bool(cfg.get("world_state")))
+                                             world_state=bool(cfg.get("world_state")),
+                                             npc_standing_on=bool(cfg.get("npc_standing")))
     return {"applied": written, "pending_nodes": pending_names,
             "summary": proposals.get("summary", ""), "new": len(new_lines)}
 
@@ -773,7 +832,7 @@ def drain_inbox(cfg, tpath, world, spath) -> dict:
                 inbox.append(spath, job)              # predecessor window still pending → re-queue
                 continue
             _fold_proposals(job.get("proposals") or {}, world, spath, start, end, bool(job.get("apply_canon")),
-                            world_state=bool(cfg.get("world_state")))
+                            world_state=bool(cfg.get("world_state")), npc_standing_on=bool(cfg.get("npc_standing")))
             applied += 1
         except Exception:
             continue

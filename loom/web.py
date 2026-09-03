@@ -190,6 +190,7 @@ def make_handler(cfg: dict):
                                         "world_rounds": bool(cfg.get("world_rounds")),
                                         "world_cadence": cfg.get("world_cadence", 3),
                                         "world_state": bool(cfg.get("world_state")),
+                                        "npc_standing": bool(cfg.get("npc_standing")),
                                         "tone_steer": bool(cfg.get("tone_steer")),
                                         "stream": bool(cfg.get("stream")),
                                         "scene_memory": bool(cfg.get("scene_memory")),
@@ -348,7 +349,8 @@ def make_handler(cfg: dict):
                         proposals, world, spath,
                         approve=lambda kind, name, _p: name in ok.get(kind, set()),
                         deed_window=(start, total), watermark=total,
-                        world_state=bool(cfg.get("world_state")))
+                        world_state=bool(cfg.get("world_state")),
+                        npc_standing_on=bool(cfg.get("npc_standing")))
                 except Exception as e:
                     return self._send(502, {"error": str(e)})
                 return self._send(200, {"written": written})
@@ -476,6 +478,8 @@ def make_handler(cfg: dict):
                     up["world_rounds"] = bool(body["world_rounds"])
                 if "world_state" in body:
                     up["world_state"] = bool(body["world_state"])       # the symbolic-object grounding layer on/off
+                if "npc_standing" in body:
+                    up["npc_standing"] = bool(body["npc_standing"])     # NPC↔NPC standing on/off
                 if "tone_steer" in body:
                     up["tone_steer"] = bool(body["tone_steer"])
                 if "stream" in body:
