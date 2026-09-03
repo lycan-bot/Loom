@@ -204,7 +204,7 @@ def classify(world: Path, tpath: Path, spath: Path) -> list:
 # earns a tracked agenda that it pursues over time, and whether it deliberates before acting. A passing
 # walk-on gets 0 (today's stateless behavior); a main character at high depth gets the full person.
 _TIER_WEIGHT = {"main": 1.0, "antagonist": 1.0, "side": 0.5,
-                "passing": 0.0, "world": 0.0, "factions": 0.0}
+                "passing": 0.0, "world": 0.0, "factions": 0.5}   # a faction acts at a side-character's budget in the world round
 
 AGENDA_RUNG = 0.5        # at/above this an NPC earns a tracked, progress-bearing agenda (P2)
 DELIBERATE_RUNG = 0.75   # at/above this an NPC thinks before it acts (P4) — bounds the deliberation cost

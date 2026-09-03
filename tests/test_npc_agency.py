@@ -52,6 +52,31 @@ class AgencyIntegrationTest(unittest.TestCase):
         self.assertIn("Wren", actors)                         # a main character acts…
         self.assertNotIn("Extra", actors)                     # …a passing walk-on (rung 0) does not
 
+    def test_faction_with_a_want_acts_in_the_world_round(self):
+        # factions-as-agents: an ORGANIZATION with a stated want takes a world-round turn like a person
+        camp = _camp()
+        w = camp / "world"
+        canon.write_node(w, "Docks", "the harbor district", {"kind": "place"})
+        canon.write_node(w, "The Salt Syndicate", "a smuggling ring", {"kind": "faction",
+                         "wants": "to control the docks", "location": "Docks"})
+        cfg = dict(config.DEFAULTS); cfg["depth"] = 1.0
+        _out, calls = self._run(camp, cfg)
+        actors = next(p for p in calls if "THIS ROUND" in p).split("THIS ROUND")[1].split("CANON")[0]
+        self.assertIn("Salt Syndicate", actors)               # the organization is cast…
+        self.assertIn("to control the docks", actors)         # …on its stated want (agenda-injected)
+
+    def test_faction_without_a_want_is_not_cast(self):
+        camp = _camp()
+        w = camp / "world"
+        canon.write_node(w, "Docks", "the harbor", {"kind": "place"})
+        canon.write_node(w, "Harbor Guild", "dockworkers", {"kind": "faction", "location": "Docks"})   # no wants
+        canon.write_node(w, "Wren", "a cadet", {"kind": "character", "importance": "main",
+                                               "wants": "to escape", "location": "Docks"})
+        cfg = dict(config.DEFAULTS); cfg["depth"] = 1.0
+        _out, calls = self._run(camp, cfg)
+        actors = next(p for p in calls if "THIS ROUND" in p).split("THIS ROUND")[1].split("CANON")[0]
+        self.assertNotIn("Harbor Guild", actors)              # a faction with no want has no agenda → no turn
+
     def test_agenda_injected_into_the_round(self):
         camp = _camp(); _world(camp)
         cfg = dict(config.DEFAULTS); cfg["depth"] = 1.0

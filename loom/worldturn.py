@@ -84,8 +84,8 @@ def scene_characters(cfg, world, tpath) -> set:
         return set()
     present = set()
     for n in canon.load_all(world):
-        if n["frontmatter"].get("kind") != "character":
-            continue
+        if n["frontmatter"].get("kind") not in ("character", "faction"):
+            continue                                 # a faction named in-scene shouldn't also move off-screen
         name_tokens = {t for t in re.findall(r"[\w']+", n["name"].lower())
                        if t not in _TITLES and len(t) > 2}
         if name_tokens & text_tokens:                # any distinctive name-token appears in the scene
@@ -101,7 +101,8 @@ def majors(world, exclude=()) -> list:
     places = {n["name"] for n in nodes if n["frontmatter"].get("kind") == "place"}
     out = []
     for n in nodes:
-        if n["frontmatter"].get("kind") != "character" or player.is_player(n):
+        # characters AND factions with a stated want are agents — a guild moves against you like a person does
+        if n["frontmatter"].get("kind") not in ("character", "faction") or player.is_player(n):
             continue                              # the PLAYER's character never takes a world-round turn
         if n["name"] in exclude:
             continue                              # in the live scene — the narrator is already voicing them
