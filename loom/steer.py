@@ -54,22 +54,28 @@ def compose(weights: dict):
 
 _MIN_TOKENS = 12         # too short to judge — a brief line isn't a loop
 _UNIQUE_FLOOR = 0.35     # unique/total below this over real length = a collapsed vocabulary (normal prose ~0.6+)
-_RUN_LIMIT = 5           # one token repeated this many times in a row = the '1 1 1 1' attractor
+_RUN_LIMIT = 5           # one token repeated this many times in a row
+_RUN_UNIQUE_CEIL = 0.5   # …but only counts as shatter when the vocabulary is ALSO degenerate (else it's dramatic
 
 
 def shattered(text) -> bool:
     """A deterministic tell that a control-vector scale collapsed the generation into a degenerate
-    repetition loop (STEERING.md's '11 11 1 1'): a tiny vocabulary over enough length, or a single token
-    repeated in a long consecutive run. Tuned to fire ONLY on real degeneration, not ordinary prose."""
+    repetition loop (STEERING.md's '11 11 1 1'): a tiny vocabulary over enough length, or a long single-token
+    run IN A TEXT WHOSE VOCABULARY IS ALSO COLLAPSING. Tuned to fire ONLY on real degeneration — legitimate
+    dramatic repetition ('Knock. Knock. Knock. Knock. Knock. The sound came from behind the door.') keeps a
+    rich vocabulary, so the run alone never fires."""
     toks = re.findall(r"[^\W_]+", str(text or "").lower())
     if len(toks) < _MIN_TOKENS:
         return False
-    if len(set(toks)) / len(toks) < _UNIQUE_FLOOR:       # collapsed vocabulary over real length
+    ratio = len(set(toks)) / len(toks)
+    if ratio < _UNIQUE_FLOOR:                            # collapsed vocabulary over real length
         return True
+    if ratio >= _RUN_UNIQUE_CEIL:                        # rich vocabulary → a run is dramatic prose, not a loop
+        return False
     run, prev = 1, None
     for t in toks:
         run = run + 1 if t == prev else 1
-        if run >= _RUN_LIMIT:                            # a long consecutive run of one token
+        if run >= _RUN_LIMIT:                            # a long run AND a middling-to-collapsing vocabulary
             return True
         prev = t
     return False

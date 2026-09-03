@@ -191,7 +191,7 @@ def _prepare(player_input: str, cfg: dict, tpath: Path, world: Path, spath: Path
     scene_names = [n["name"] for n in nodes if n.get("score", 0.0) > 0]
     if cfg.get("retrieval_log"):                      # the ablation instrument: log a canon entity the player
         try:                                          # NAMED that retrieval didn't surface (evidence, off → silent)
-            ablation.record(spath, player_input, set(scene_names), world)
+            ablation.record(spath, player_input, set(scene_names), world, turn=int(st.get("_turn", 0) or 0))
         except Exception:
             pass
     # where the player is now — the top grounded PLACE in the scene, persisted across turns so a
@@ -242,7 +242,10 @@ def _prepare(player_input: str, cfg: dict, tpath: Path, world: Path, spath: Path
             messages.append({"role": "user", "content": sec.neutralize(e["text"])})
     messages.append({"role": "user", "content": sec.neutralize(player_input)})
 
-    steer_w = steer.step(world, st, tension, nodes) if cfg.get("tone_steer") else {}   # smoothed register weights
+    # only GENUINELY-near nodes (score>0) steer the register — a score-0 retrieval fallback (a cozy place
+    # the player isn't at) must NOT flip the tone vector, matching every other scene-node consumer here
+    steer_w = (steer.step(world, st, tension, [n for n in nodes if n.get("score", 0.0) > 0])
+               if cfg.get("tone_steer") else {})
     tscale = steer.compose(steer_w) if steer_w else None                               # → the served-vector scale
     return _Ctx(cfg=cfg, tpath=tpath, world=world, spath=spath, player_input=player_input,
                 messages=messages, system=system, tscale=tscale, canon_raw=canon_raw,

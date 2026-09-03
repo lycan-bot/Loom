@@ -110,6 +110,36 @@ class ShatterTest(unittest.TestCase):
         self.assertEqual(len(scales), 2)               # exactly one clamp re-roll
         self.assertEqual(scales[1], steer.declamp(scales[0]))   # re-rolled at a scale eased toward neutral
 
+    def test_dramatic_repetition_is_not_shatter(self):
+        # red-team: legitimate dramatic repetition keeps a rich vocabulary → the run alone must not fire
+        self.assertFalse(steer.shattered(
+            "Knock. Knock. Knock. Knock. Knock. The sound came from behind the sealed cellar door, patient and cold."))
+        self.assertFalse(steer.shattered(
+            "No, no, no, no, no, she whispered, backing away from the shape rising in the doorway."))
+        self.assertTrue(steer.shattered(                                   # a run + a collapsing vocabulary → still caught
+            "alpha beta gamma delta one one one one one one one one"))
+
+    def test_score_zero_fallback_place_does_not_flip_the_register(self):
+        # red-team: a score-0 retrieval fallback (a cozy place the player isn't at) must not flip the tone vector
+        from loom import retrieve
+        camp = _camp()
+        canon.write_node(camp / "world", "World", "grim horror",
+                         {"kind": "lore", "setting": "true", "genre": "grim horror"})
+        canon.write_node(camp / "world", "Cottage", "a cozy cottage", {"kind": "place", "tone": "cozy"})
+        state.save(camp / "state.json", {"_tension": 0.15})
+        cfg = dict(config.DEFAULTS); cfg["tone_steer"] = True; cfg["depth"] = 0
+        cozy = canon.read_node(camp / "world", "Cottage"); cozy["score"] = 0.0     # a fallback, not near
+        worldn = canon.read_node(camp / "world", "World"); worldn["score"] = 0.0
+        cap = {}
+        orig_r, orig_c = retrieve.retrieve, llm.chat
+        retrieve.retrieve = lambda *a, **k: [cozy, worldn]
+        llm.chat = lambda m, c, **k: (cap.__setitem__("scale", k.get("control_vector_scale")), "A grim beat.")[1]
+        try:
+            narrate.turn("hmm ok well", cfg, camp / "t.jsonl", camp / "world", camp / "state.json")
+        finally:
+            retrieve.retrieve = orig_r; llm.chat = orig_c
+        self.assertGreater(cap["scale"], 0)          # grim-world baseline (positive), not the cozy override (negative)
+
     def test_no_reroll_when_steering_off(self):
         # byte-identical when off: a shattered-looking output is NOT re-rolled if steering isn't active
         cfg = dict(config.DEFAULTS); cfg["tone_steer"] = False

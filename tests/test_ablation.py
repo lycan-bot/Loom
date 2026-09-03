@@ -43,6 +43,17 @@ class AblationTest(unittest.TestCase):
         self.assertTrue(r["kill_criterion_met"])                              # missed 2× → evidence
         self.assertIn("Wren", r["repeated_misses"])
 
+    def test_retry_of_the_same_turn_is_idempotent(self):
+        # red-team: a Retry (undo-then-replay of the same input) must NOT double-count and falsely trip the criterion
+        camp = _camp(); w = self._world(camp); sp = camp / "state.json"
+        ablation.record(sp, "Wren?", set(), w, turn=5)
+        ablation.record(sp, "Wren?", set(), w, turn=5)          # the retry — same turn
+        r = ablation.report(sp)
+        self.assertEqual(r["miss_turns"], 1)                    # one row, not two
+        self.assertFalse(r["kill_criterion_met"])               # not spuriously tripped by a retry
+        ablation.record(sp, "Wren?", set(), w, turn=6)          # a genuinely new turn does add a row
+        self.assertEqual(ablation.report(sp)["miss_turns"], 2)
+
     def test_log_is_capped(self):
         camp = _camp(); w = self._world(camp); sp = camp / "state.json"
         for _ in range(ablation._CAP + 25):

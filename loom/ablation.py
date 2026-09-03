@@ -22,11 +22,16 @@ def _path(spath):
     return Path(spath).parent / "ablation_log.jsonl"
 
 
-def record(spath, player_input, retrieved_names, world) -> list:
+def record(spath, player_input, retrieved_names, world, turn=None) -> list:
     """Log the canon entities the player NAMED that retrieval did NOT surface this turn. `retrieved_names`
     is the set/iterable of node names retrieved with score>0. Returns the missed names ([] when retrieval
     covered every named entity). Only a MISS writes a row (the log stays lean). Never raises — an
-    instrument must not break a turn."""
+    instrument must not break a turn.
+
+    `turn` (a monotonic turn number) makes the write IDEMPOTENT per logical turn: a Retry (undo-then-replay
+    of the same input) re-runs record with the SAME turn, so the prior row for that turn is REPLACED, not
+    double-counted — the log is undo-consistent without touching the snapshot machinery. Without a turn it
+    appends (legacy)."""
     try:
         named = extract.present(player_input or "", world)
     except Exception:
@@ -38,11 +43,15 @@ def record(spath, player_input, retrieved_names, world) -> list:
     if not missed:
         return []
     row = {"input": (player_input or "")[:200], "named": named, "missed": missed}
+    if turn is not None:
+        row["turn"] = turn
     try:
-        p = _path(spath)
-        lines = p.read_text("utf-8").splitlines() if p.exists() else []
-        lines.append(json.dumps(row, ensure_ascii=False))
-        p.write_text("\n".join(lines[-_CAP:]) + "\n", encoding="utf-8")   # keep only the last _CAP rows
+        rows = entries(spath)
+        if turn is not None:                             # drop any earlier log of THIS turn (a retry/undo replay)
+            rows = [r for r in rows if r.get("turn") != turn]
+        rows.append(row)
+        _path(spath).write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in rows[-_CAP:]) + "\n",
+                                encoding="utf-8")         # keep only the last _CAP rows
     except Exception:
         pass
     return missed

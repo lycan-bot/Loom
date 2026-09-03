@@ -191,8 +191,8 @@ def world_dead_but_active(nodes, thr, ctx):
         if node is None or node["frontmatter"].get("kind") != "character" or _canonically_dead(node):
             continue                                     # not a character, or canon already knows → dead_but_active's job
         since = f.get("since")
-        term.append((node["name"], world_layer._norm(node["name"]), f["value"],
-                     since if isinstance(since, int) else None))
+        cname = str(node["frontmatter"].get("title") or node["name"]).strip()   # the canonical title, not the raw subject
+        term.append((cname, world_layer._norm(cname), f["value"], since if isinstance(since, int) else None))
     if not term:
         return []
     events = episodic.entries(spath)

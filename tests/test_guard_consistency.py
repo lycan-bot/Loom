@@ -180,6 +180,18 @@ class ConsistencyTest(unittest.TestCase):
         transcript.append(t, "narrator", "You glance at the old ledger's ashes and move on.")
         self.assertFalse(any(f.kind == "world-dead-but-active" for f in self._check(camp, t)))
 
+    def test_world_dead_active_message_uses_canonical_title(self):
+        # red-team: the finding must name the canonical title, not the raw world-fact subject string
+        from loom import world, episodic
+        camp = _camp(); sp = camp / "state.json"
+        canon.write_node(camp / "world", "Ser Varro", "a knight", {"kind": "character"})
+        world.set_fact(sp, "ser varro", "state", "slain", since=2)      # subject differs in casing from the title
+        episodic.record(sp, [{"what": "ser varro strikes", "who": ["ser varro"]}], entry_start=5, source="play")
+        t = camp / "t.jsonl"; transcript.append(t, "player", "x")
+        msgs = [f.message for f in self._check(camp, t) if f.kind == "world-dead-but-active"]
+        self.assertTrue(msgs)
+        self.assertIn("Ser Varro", msgs[0])          # the canonical title, not the raw 'ser varro'
+
     def test_world_terminal_no_timestamp_skips_the_temporal_signal(self):
         # an operator-set fact carries no `since` → the temporal (acts-later) signal can't order it → no med flag
         from loom import world, episodic
