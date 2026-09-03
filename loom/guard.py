@@ -80,23 +80,36 @@ def stale_thread(nodes, thr):
 
 
 def location_conflict(nodes, thr):
-    """A character whose `location:` names a canon node that is NOT a place — a person located 'at' another
-    person, a faction, or a lore entry. The world round's co-location routing expects a PLACE; a non-place
-    location silently misroutes it (a character placed 'at' another character never groups with anyone at a
-    real location). Deterministic + structural — it catches a manually-authored / legacy bad location that
-    consolidation's _resolve_place write-guard would have refused."""
-    by_name = {n["name"]: n for n in nodes}
+    """A character or faction whose `location:` names a canon node that is NOT a place — an agent located 'at'
+    another person, a faction, or a lore entry. The world round's co-location routing expects a PLACE; a
+    non-place location silently misroutes it (it never groups with anyone at a real location). Deterministic +
+    structural — catches a manually-authored / legacy bad location that consolidation's _resolve_place
+    write-guard would have refused. Both characters AND factions are routed by location (the same batch made
+    factions agents), so both are checked. Resolves case/whitespace-insensitively and PREFERS a real place when
+    a title is shared, so a genuine place named 'Citadel' is never masked by a same-titled faction."""
+    def _n(s):
+        return " ".join(str(s or "").strip().lower().split())
+
+    place_by, other_by = {}, {}                       # norm(title) -> node; places win a shared title
+    for n in nodes:
+        k = _n(n["name"])
+        if not k:
+            continue
+        (place_by if n["frontmatter"].get("kind") == "place" else other_by).setdefault(k, n)
     out = []
     for n in nodes:
-        if n["frontmatter"].get("kind") != "character":
+        if n["frontmatter"].get("kind") not in ("character", "faction"):
             continue
         loc = str(n["frontmatter"].get("location", "")).strip()
-        tgt = by_name.get(loc)
-        if tgt is not None and tgt["frontmatter"].get("kind") != "place":
+        k = _n(loc)
+        if not k or k in place_by:
+            continue                                  # unset, a not-yet-noded place, or a REAL place → fine
+        tgt = other_by.get(k)
+        if tgt is not None:                           # resolves ONLY to a non-place node → a routing conflict
             kind = tgt["frontmatter"].get("kind", "node")
             out.append(Finding("low", "location-conflict",
                                f"'{n['name']}' is located at '{loc}', which is a {kind}, not a place — the world "
-                               "round can't route them there; point `location:` at a place node"))
+                               "round can't route it there; point `location:` at a place node"))
     return out
 
 

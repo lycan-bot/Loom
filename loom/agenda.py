@@ -67,8 +67,11 @@ def pursuit(name, moral, thread_list, spath, rung, own_only=False) -> dict:
     # a staged thread carries an ARC (successive payoff beats); the CURRENT step is the goal in front of the
     # NPC right now, so a multi-step pursuit reads "wants X … the step in front: bribe the gatekeeper" rather
     # than restating the whole want every beat. Director-advanced (blessed), so it's not self-propagating.
+    # The step is read ONLY off the NPC's OWN (id-matched) thread — never a co-star's thread borrowed via the
+    # name-entity fallback — else a world-round/sleep read grafts another NPC's concrete plan onto this goal.
     step = ""
-    stages = getattr(thread, "stages", None) if thread is not None else None
+    own = thread is not None and getattr(thread, "id", None) == _threads.make_id(f"{name} {want}")
+    stages = getattr(thread, "stages", None) if own else None
     if isinstance(stages, list) and stages:
         idx = int(getattr(thread, "stage", 0) or 0)
         if 0 <= idx < len(stages) and isinstance(stages[idx], str):

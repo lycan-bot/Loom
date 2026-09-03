@@ -89,6 +89,29 @@ class GuardTest(unittest.TestCase):
         canon.write_node(camp / "world", "Wren", "a cadet", {"kind": "character", "location": "The Far Reaches"})
         self.assertFalse(any(f.kind == "location-conflict" for f in guard.check(camp / "world", camp / "threads.json")))
 
+    def test_location_conflict_covers_factions(self):
+        # red-team: factions are world-round agents too, so a faction at a non-place is also flagged
+        camp = _campaign()
+        canon.write_node(camp / "world", "Wren", "a cadet", {"kind": "character"})
+        canon.write_node(camp / "world", "The Guild", "a guild", {"kind": "faction", "location": "Wren"})
+        self.assertTrue(any(f.kind == "location-conflict" and "Guild" in f.message
+                            for f in guard.check(camp / "world", camp / "threads.json")))
+
+    def test_location_conflict_is_case_and_space_insensitive(self):
+        # red-team: a mis-cased/whitespace-variant non-place location still mis-routes → still flagged
+        camp = _campaign()
+        canon.write_node(camp / "world", "Wren", "a cadet", {"kind": "character"})
+        canon.write_node(camp / "world", "Faelan", "a mentor", {"kind": "character", "location": "  wren "})
+        self.assertTrue(any(f.kind == "location-conflict" for f in guard.check(camp / "world", camp / "threads.json")))
+
+    def test_shared_title_prefers_the_real_place(self):
+        # red-team: a genuine place named 'Citadel' must not be masked by a same-titled faction sorting later
+        camp = _campaign(); w = camp / "world"
+        (w / "a-citadel.md").write_text("---\nkind: place\ntitle: Citadel\n---\n\na fortress\n")
+        (w / "z-order.md").write_text("---\nkind: faction\ntitle: Citadel\n---\n\nthe ruling order\n")
+        canon.write_node(w, "Wren", "a cadet", {"kind": "character", "location": "Citadel"})
+        self.assertFalse(any(f.kind == "location-conflict" for f in guard.check(w, camp / "threads.json")))
+
 
 if __name__ == "__main__":
     unittest.main()

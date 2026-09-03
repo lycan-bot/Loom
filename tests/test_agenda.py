@@ -70,6 +70,16 @@ class PursuitTest(unittest.TestCase):
         self.assertIn("wants to escape the college", ln)                # the overall goal…
         self.assertIn("bribe the gatekeeper", ln)                       # …and the step in front
 
+    def test_step_not_read_off_a_borrowed_thread(self):
+        # red-team: a co-star's staged thread must NOT graft its concrete step onto an unrelated NPC's goal
+        sp = _camp() / "state.json"
+        wren = threads.Thread(id=threads.make_id("Wren to escape the college"), question="q",
+                              entities=["Wren", "Kael"], readiness=0.5, status="ripening",
+                              stages=["forge a pass", "bribe the gatekeeper"], stage=1)
+        p = agenda.pursuit("Kael", npc.moral_read("to avenge his brother", ""), [wren], sp, 1.0)   # own_only False
+        self.assertEqual(p["step"], "")                                # borrows Wren's thread for status, never her step
+        self.assertNotIn("bribe the gatekeeper", agenda.line_of(p))
+
     def test_pursuit_step_empty_without_stages_or_past_the_end(self):
         sp = _camp() / "state.json"
         m = npc.moral_read("to escape", "")
