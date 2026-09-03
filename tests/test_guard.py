@@ -70,6 +70,25 @@ class GuardTest(unittest.TestCase):
                      [Thread("q", "Will the vault open?", status="resolved", ready_beats=20)])
         self.assertFalse(any(f.kind == "stale-thread" for f in guard.check(camp / "world", camp / "threads.json")))
 
+    def test_location_conflict_flags_a_non_place(self):
+        camp = _campaign()
+        canon.write_node(camp / "world", "Wren", "a cadet", {"kind": "character"})
+        canon.write_node(camp / "world", "Faelan", "a mentor", {"kind": "character", "location": "Wren"})  # a person, not a place
+        fs = guard.check(camp / "world", camp / "threads.json")
+        self.assertTrue(any(f.kind == "location-conflict" and "Faelan" in f.message for f in fs))
+
+    def test_location_at_a_real_place_is_clean(self):
+        camp = _campaign()
+        canon.write_node(camp / "world", "Library", "a warded library", {"kind": "place"})
+        canon.write_node(camp / "world", "Wren", "a cadet", {"kind": "character", "location": "Library"})
+        self.assertFalse(any(f.kind == "location-conflict" for f in guard.check(camp / "world", camp / "threads.json")))
+
+    def test_location_at_an_unnoded_place_is_not_flagged(self):
+        # an NPC may move to a not-yet-noded place — a location with no canon node is intentional, never flagged
+        camp = _campaign()
+        canon.write_node(camp / "world", "Wren", "a cadet", {"kind": "character", "location": "The Far Reaches"})
+        self.assertFalse(any(f.kind == "location-conflict" for f in guard.check(camp / "world", camp / "threads.json")))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -79,7 +79,28 @@ def stale_thread(nodes, thr):
             if getattr(t, "status", "") == "ready" and int(getattr(t, "ready_beats", 0) or 0) >= _STALE_READY_BEATS]
 
 
-DETECTORS = [dangling_links, thread_unknown_entities, orphan_nodes, bloated_node, stale_thread]   # structural: (nodes, thr)
+def location_conflict(nodes, thr):
+    """A character whose `location:` names a canon node that is NOT a place — a person located 'at' another
+    person, a faction, or a lore entry. The world round's co-location routing expects a PLACE; a non-place
+    location silently misroutes it (a character placed 'at' another character never groups with anyone at a
+    real location). Deterministic + structural — it catches a manually-authored / legacy bad location that
+    consolidation's _resolve_place write-guard would have refused."""
+    by_name = {n["name"]: n for n in nodes}
+    out = []
+    for n in nodes:
+        if n["frontmatter"].get("kind") != "character":
+            continue
+        loc = str(n["frontmatter"].get("location", "")).strip()
+        tgt = by_name.get(loc)
+        if tgt is not None and tgt["frontmatter"].get("kind") != "place":
+            kind = tgt["frontmatter"].get("kind", "node")
+            out.append(Finding("low", "location-conflict",
+                               f"'{n['name']}' is located at '{loc}', which is a {kind}, not a place — the world "
+                               "round can't route them there; point `location:` at a place node"))
+    return out
+
+
+DETECTORS = [dangling_links, thread_unknown_entities, orphan_nodes, bloated_node, stale_thread, location_conflict]
 
 
 # --- consistency detectors (storyteller-memory Phase 4): transcript-aware, so they catch the story
