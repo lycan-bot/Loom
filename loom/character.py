@@ -72,7 +72,9 @@ def interior(world, tpath, spath, cfg, node) -> dict:
     thread_list = threads.load(Path(spath).parent / "threads.json")
     pursuit = agenda.pursuit(name, m, thread_list, spath, max(rung, 0.5))
     st_all = state.load(spath)
-    standings = npc_standing.of(npc_standing.load(st_all), name)   # how this NPC stands with the OTHERS (empty when off)
+    # how this NPC stands with the OTHERS — gated on the toggle like its two sibling reads (worldturn / narrate),
+    # so a store left over from an ON period doesn't leak into the panel once the feature is turned off
+    standings = npc_standing.of(npc_standing.load(st_all), name) if cfg.get("npc_standing") else []
     standing = 0
     rep_e = reputation.load(st_all).get(name)
     if isinstance(rep_e, dict):

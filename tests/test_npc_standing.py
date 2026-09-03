@@ -49,6 +49,20 @@ class StoreTest(unittest.TestCase):
         self.assertIn("Wren", cl); self.assertIn("Faelan", cl)
         self.assertEqual(npc_standing.clause(store, ["Wren", "Kess"]), "")    # Faelan absent → no pair present
 
+    def test_clause_flattens_a_newline_in_a_model_authored_name(self):
+        # red-team: a name with an interior newline (norm-collides with a benign character) must not break the frame
+        store = {}
+        npc_standing.apply_delta(store, "Mara", "Ser Aldric \nVane", 3, "sworn allies")   # space-then-newline
+        cl = npc_standing.clause(store, ["Mara", "Ser Aldric Vane"])          # present-gate matches (same norm)
+        self.assertIn("allied", cl)
+        self.assertIn("Ser Aldric Vane", cl)                                  # flattened back to one line
+        self.assertNotIn("\n", cl.split("):\n", 1)[-1] if "):\n" in cl else cl.split("\n\n", 1)[-1])
+
+    def test_clause_survives_a_malformed_entry(self):
+        # red-team: a store entry with who=None must not crash the sort key
+        store = {"junk": {"who": None, "standing": -1, "log": []}}
+        self.assertEqual(npc_standing.clause(store, ["A", "B"]), "")
+
 
 class DiodeTest(unittest.TestCase):
     def _apply(self, proposals, on=True, dw=(0, 2)):
@@ -81,17 +95,26 @@ class DiodeTest(unittest.TestCase):
 
 
 class GroundingTest(unittest.TestCase):
-    def test_interior_includes_standings(self):
-        camp = _camp()
+    def _scene(self, camp):
         canon.write_node(camp / "world", "Wren", "a cadet", {"kind": "character"})
         canon.write_node(camp / "world", "Faelan", "a mentor", {"kind": "character"})
         sp, tp = camp / "state.json", camp / "t.jsonl"
         store = {}
         npc_standing.apply_delta(store, "Wren", "Faelan", -2, "clashed over the ward")
         state.save(sp, {"_npc_standing": store})
-        node = canon.read_node(camp / "world", "Wren")
-        interior = character.interior(camp / "world", tp, sp, dict(config.DEFAULTS), node)
+        return sp, tp, canon.read_node(camp / "world", "Wren")
+
+    def test_interior_includes_standings_when_on(self):
+        camp = _camp(); sp, tp, node = self._scene(camp)
+        cfg = dict(config.DEFAULTS); cfg["npc_standing"] = True
+        interior = character.interior(camp / "world", tp, sp, cfg, node)
         self.assertTrue(any(s["other"] == "Faelan" and s["standing"] == -2 for s in interior["standings"]))
+
+    def test_interior_standings_empty_when_off(self):
+        # red-team: a store left over from an ON period must NOT leak into the panel once the toggle is off
+        camp = _camp(); sp, tp, node = self._scene(camp)
+        interior = character.interior(camp / "world", tp, sp, dict(config.DEFAULTS), node)   # npc_standing False
+        self.assertEqual(interior["standings"], [])
 
 
 if __name__ == "__main__":

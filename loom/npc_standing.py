@@ -104,8 +104,13 @@ def clause(store, names) -> str:
     """A prompt fragment: the standings AMONG the given in-scene names (both endpoints present + non-neutral),
     so the narrator colours how two people treat each other. '' when no such pair has a standing."""
     present = {_norm(n) for n in (names or [])}
+
+    def _flat(s):                                     # collapse any interior whitespace (incl. a model-authored
+        return " ".join(str(s).split())               # newline) so an interpolated name can't break the prompt frame
+
     lines = []
-    for e in sorted((store or {}).values(), key=lambda x: x.get("who", []) if isinstance(x, dict) else []):
+    for e in sorted((store or {}).values(),
+                    key=lambda x: x.get("who") if isinstance(x, dict) and isinstance(x.get("who"), list) else []):
         who = e.get("who") if isinstance(e, dict) and isinstance(e.get("who"), list) else []
         if len(who) != 2 or any(_norm(w) not in present for w in who):
             continue
@@ -113,8 +118,8 @@ def clause(store, names) -> str:
         if st == 0:
             continue                                  # neutral says nothing
         recent = (e.get("log") or [])[-1:]
-        why = f" — {' '.join(recent[0].lstrip('▲▼• ').split())}" if recent else ""
-        lines.append(f"- {who[0]} and {who[1]} are {label(st)}{why}")
+        why = f" — {_flat(recent[0].lstrip('▲▼• '))}" if recent else ""
+        lines.append(f"- {_flat(who[0])} and {_flat(who[1])} are {label(st)}{why}")   # BOTH names flattened, like reputation.clause
     if not lines:
         return ""
     return ("\n\nBETWEEN THE PEOPLE HERE (how these characters stand with EACH OTHER — let it colour how they "
