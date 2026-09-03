@@ -108,58 +108,83 @@ class ConsistencyTest(unittest.TestCase):
         self.assertFalse(any(f.kind == "disposition-reversal" for f in self._check(camp, t)))
 
     def test_world_terminal_then_acts_in_a_later_beat(self):
-        # the world store marks Varro slain (turn 2); he acts as a `who` in a LATER beat (turn 5) → med
+        # world marks the canon character Varro (canon-silent on death) slain @2; he acts in a LATER beat @5 → med
         from loom import world, episodic
         camp = _camp(); sp = camp / "state.json"
+        canon.write_node(camp / "world", "Varro", "a knight", {"kind": "character"})   # canon still has him active
         world.set_fact(sp, "Varro", "state", "slain", since=2)
         episodic.record(sp, [{"what": "Varro cuts down the guard", "who": ["Varro"]}], entry_start=5, source="play")
         t = camp / "t.jsonl"; transcript.append(t, "player", "x")
-        fs = self._check(camp, t)
         self.assertTrue(any(f.kind == "world-dead-but-active" and "Varro" in f.message and f.severity == "med"
-                            for f in fs))
+                            for f in self._check(camp, t)))
 
     def test_world_terminal_acting_before_death_not_flagged(self):
         # he acted BEFORE being marked slain (turn 2 < turn 5) — no contradiction, must stay quiet
         from loom import world, episodic
         camp = _camp(); sp = camp / "state.json"
+        canon.write_node(camp / "world", "Varro", "a knight", {"kind": "character"})
         world.set_fact(sp, "Varro", "state", "slain", since=5)
         episodic.record(sp, [{"what": "Varro cuts down the guard", "who": ["Varro"]}], entry_start=2, source="play")
         t = camp / "t.jsonl"; transcript.append(t, "player", "x")
         self.assertFalse(any(f.kind == "world-dead-but-active" for f in self._check(camp, t)))
 
-    def test_non_terminal_world_state_not_flagged(self):
-        # a locked gate is not a TERMINAL state — acting on it later is normal, never flagged
+    def test_namesake_object_does_not_collide_with_a_person(self):
+        # red-team: a destroyed SHIP 'the Wren' must NOT flag the living cadet 'Wren' who acts later
         from loom import world, episodic
         camp = _camp(); sp = camp / "state.json"
-        world.set_fact(sp, "the gate", "state", "locked", since=2)
-        episodic.record(sp, [{"what": "the gate is opened", "who": ["the gate"]}], entry_start=5, source="play")
+        canon.write_node(camp / "world", "Wren", "a sharp cadet", {"kind": "character"})   # the person
+        world.set_fact(sp, "the Wren", "state", "sunk", since=2)                            # the ship (no canon node)
+        episodic.record(sp, [{"what": "Wren reloads the ballista", "who": ["Wren"]}], entry_start=5, source="play")
         t = camp / "t.jsonl"; transcript.append(t, "player", "x")
         self.assertFalse(any(f.kind == "world-dead-but-active" for f in self._check(camp, t)))
 
+    def test_two_terminal_facts_are_order_independent(self):
+        # red-team: slain@2 + destroyed@9 on one character; a beat @5 must flag via the EARLIER fact, not last-loaded
+        from loom import world, episodic
+        camp = _camp(); sp = camp / "state.json"
+        canon.write_node(camp / "world", "Varro", "a knight", {"kind": "character"})
+        world.set_fact(sp, "Varro", "state", "slain", since=2)
+        world.set_fact(sp, "Varro", "fate", "destroyed", since=9)      # a later terminal fact on a DIFFERENT attribute
+        episodic.record(sp, [{"what": "Varro strikes", "who": ["Varro"]}], entry_start=5, source="play")
+        t = camp / "t.jsonl"; transcript.append(t, "player", "x")
+        self.assertTrue(any(f.kind == "world-dead-but-active" and f.severity == "med" for f in self._check(camp, t)))
+
+    def test_canon_dead_is_not_double_reported(self):
+        # red-team: a character dead in BOTH canon AND the world store fires dead_but_active ONLY (no double-report)
+        from loom import world
+        camp = _camp(); sp = camp / "state.json"
+        canon.write_node(camp / "world", "Mara", "a mage", {"kind": "character", "status": "dead"})
+        world.set_fact(sp, "Mara", "state", "slain", since=2)
+        t = camp / "t.jsonl"; transcript.append(t, "player", "x")
+        transcript.append(t, "narrator", "Mara steps from the shadows and casts a spell.")
+        kinds = [f.kind for f in self._check(camp, t)]
+        self.assertIn("dead-but-active", kinds)                        # canon's detector covers it…
+        self.assertNotIn("world-dead-but-active", kinds)               # …and the world detector stays silent (no dup)
+
     def test_world_terminal_character_mentioned_recently_low(self):
-        # a canon character the world store marks slain, still named in a recent turn → low (weaker mention signal)
+        # world marks the canon character Varro (canon-silent) slain, still named in a recent turn → low
         from loom import world
         camp = _camp(); sp = camp / "state.json"
         canon.write_node(camp / "world", "Varro", "a knight", {"kind": "character"})
         world.set_fact(sp, "Varro", "state", "slain", since=2)
         t = camp / "t.jsonl"; transcript.append(t, "player", "x")
         transcript.append(t, "narrator", "Varro raises his sword and charges.")
-        fs = self._check(camp, t)
-        self.assertTrue(any(f.kind == "world-dead-but-active" and f.severity == "low" for f in fs))
+        self.assertTrue(any(f.kind == "world-dead-but-active" and f.severity == "low" for f in self._check(camp, t)))
 
-    def test_destroyed_object_neither_acting_nor_mentioned_is_clean(self):
-        # the false-positive guard: a burned ledger that no one acts as or names must not fire
+    def test_destroyed_object_is_clean(self):
+        # a burned ledger (not a canon character) never resolves → never fires, even if named
         from loom import world
         camp = _camp(); sp = camp / "state.json"
         world.set_fact(sp, "the old ledger", "condition", "burned", since=2)
         t = camp / "t.jsonl"; transcript.append(t, "player", "x")
-        transcript.append(t, "narrator", "You walk on, thinking of nothing in particular.")
+        transcript.append(t, "narrator", "You glance at the old ledger's ashes and move on.")
         self.assertFalse(any(f.kind == "world-dead-but-active" for f in self._check(camp, t)))
 
     def test_world_terminal_no_timestamp_skips_the_temporal_signal(self):
         # an operator-set fact carries no `since` → the temporal (acts-later) signal can't order it → no med flag
         from loom import world, episodic
         camp = _camp(); sp = camp / "state.json"
+        canon.write_node(camp / "world", "Varro", "a knight", {"kind": "character"})
         world.set_fact(sp, "Varro", "state", "slain")               # since=None
         episodic.record(sp, [{"what": "Varro cuts down the guard", "who": ["Varro"]}], entry_start=5, source="play")
         t = camp / "t.jsonl"; transcript.append(t, "player", "x")

@@ -152,46 +152,59 @@ _TERMINAL_ATTRS = {"state", "condition", "status", "fate"}
 
 
 def world_dead_but_active(nodes, thr, ctx):
-    """A subject the WORLD store marks terminally gone (destroyed / dead / burned) that is still ACTIVE.
-    Two deterministic, structured signals — no prose parsing:
-      • STRONG (med): the subject acts as a `who` in a blessed episodic beat dated STRICTLY AFTER it was
-        marked gone (both clocks known) — a temporal contradiction the other detectors can't see, since a
-        canon death carries no timestamp but a world fact carries `since`;
-      • MENTION (low): a canon CHARACTER the world store marks terminal, still named in a recent turn.
-    The world layer's continuity contribution: a tracked terminal state the story then violates."""
-    spath = ctx.get("spath")
-    if not spath:
+    """The WORLD store marks a CHARACTER terminally gone that CANON still has active — a death the store
+    recorded but canon missed — and the character then acts. The signal canon alone can't see (dead_but_active
+    covers the canon-marked case; this fires only when canon is SILENT). Two deterministic, structured signals,
+    no prose parsing:
+      • STRONG (med): the character acts as a `who` in a blessed episodic beat dated STRICTLY AFTER it was
+        marked gone — a TEMPORAL contradiction no other detector can see (canon death carries no timestamp; a
+        world fact carries `since`). Every terminal fact is checked, so two facts on different attributes can't
+        mask each other (no last-write-wins);
+      • MENTION (low): the character is named in a recent turn (the weaker signal).
+    Each terminal SUBJECT is resolved to a canon character by EXACT lookup — so a destroyed object 'the Wren'
+    does NOT collide with a living cadet 'Wren' (norm-equality would; exact resolution won't)."""
+    spath, world = ctx.get("spath"), ctx.get("world")
+    if not spath or world is None:
         return []
-    from . import world as world_layer, episodic, extract
-    terminal = {}                                        # subject_norm -> (subject, value, since|None)
+    from . import world as world_layer, episodic, extract, canon
+    term = []                                            # (canon_name, canon_norm, value, since|None)
     for f in world_layer.load(spath):
-        if world_layer._norm(f["attribute"]) in _TERMINAL_ATTRS and world_layer._norm(f["value"]) in _TERMINAL_STATES:
-            since = f.get("since")
-            terminal[world_layer._norm(f["subject"])] = (f["subject"], f["value"],
-                                                         since if isinstance(since, int) else None)
-    if not terminal:
+        if (world_layer._norm(f["attribute"]) not in _TERMINAL_ATTRS
+                or world_layer._norm(f["value"]) not in _TERMINAL_STATES):
+            continue
+        node = canon.read_node(world, f["subject"])      # EXACT resolution — a namesake object won't resolve here
+        if node is None or node["frontmatter"].get("kind") != "character" or _canonically_dead(node):
+            continue                                     # not a character, or canon already knows → dead_but_active's job
+        since = f.get("since")
+        term.append((node["name"], world_layer._norm(node["name"]), f["value"],
+                     since if isinstance(since, int) else None))
+    if not term:
         return []
+    events = episodic.entries(spath)
+
+    def acts_after(cnorm, since):                        # a `who` in a beat dated strictly after `since`
+        for e in events:
+            es = e.get("entry_start")
+            whos = e.get("who") if isinstance(e.get("who"), list) else []
+            if isinstance(es, int) and es > since and any(world_layer._norm(w) == cnorm for w in whos):
+                return True
+        return False
+
     out, flagged = [], set()
-    for e in episodic.entries(spath):                    # STRONG: it acts in a beat AFTER it was marked gone
-        es = e.get("entry_start")
-        whos = e.get("who") if isinstance(e.get("who"), list) else []
-        for w in whos:
-            wn = world_layer._norm(w)
-            subj_val = terminal.get(wn)
-            if subj_val and wn not in flagged and isinstance(es, int) and isinstance(subj_val[2], int) and es > subj_val[2]:
-                out.append(Finding("med", "world-dead-but-active",
-                                   f"the world marks '{subj_val[0]}' {subj_val[1]}, but '{subj_val[0]}' acts in a "
-                                   "later beat — a continuity break (a dropped resurrection, or a stale world fact)"))
-                flagged.add(wn)
-    char_norms = {world_layer._norm(n["name"]) for n in nodes if n["frontmatter"].get("kind") == "character"}
-    present = ({world_layer._norm(p) for p in extract.present(_recent_text(ctx["tpath"]), ctx["world"])}
+    for name, cnorm, value, since in term:               # STRONG: acts after being marked gone
+        if cnorm not in flagged and since is not None and acts_after(cnorm, since):
+            out.append(Finding("med", "world-dead-but-active",
+                               f"the world marks '{name}' {value}, but canon still has them active and they ACT in "
+                               "a later beat — reconcile (a dropped death, or a stale world fact)"))
+            flagged.add(cnorm)
+    present = ({world_layer._norm(p) for p in extract.present(_recent_text(ctx["tpath"]), world)}
                if ctx.get("tpath") else set())
-    for sn, (subj, val, _since) in terminal.items():     # MENTION: a canon char marked terminal, named recently
-        if sn not in flagged and sn in char_norms and sn in present:
+    for name, cnorm, value, _since in term:              # MENTION: named in a recent turn
+        if cnorm not in flagged and cnorm in present:
             out.append(Finding("low", "world-dead-but-active",
-                               f"the world marks '{subj}' {val}, but they are named in a recent turn — a stale "
-                               "record, or a resurrection the story dropped"))
-            flagged.add(sn)
+                               f"the world marks '{name}' {value}, but canon has them active and they are named in a "
+                               "recent turn — reconcile (a stale record, or a dropped death)"))
+            flagged.add(cnorm)
     return out
 
 
