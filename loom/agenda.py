@@ -71,7 +71,9 @@ def pursuit(name, moral, thread_list, spath, rung, own_only=False) -> dict:
     # name-entity fallback — else a world-round/sleep read grafts another NPC's concrete plan onto this goal.
     step = ""
     own = thread is not None and getattr(thread, "id", None) == _threads.make_id(f"{name} {want}")
-    stages = getattr(thread, "stages", None) if own else None
+    # a HIDDEN thread's concrete staged step is director-only — never surfaced in the pursuit line (which
+    # reaches the player via _pursues_clause); the abstract status may show, the secret plan may not.
+    stages = getattr(thread, "stages", None) if (own and not getattr(thread, "hidden", False)) else None
     if isinstance(stages, list) and stages:
         idx = int(getattr(thread, "stage", 0) or 0)
         if 0 <= idx < len(stages) and isinstance(stages[idx], str):

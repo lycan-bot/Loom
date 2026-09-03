@@ -89,6 +89,20 @@ class PursuitTest(unittest.TestCase):
                               readiness=0.8, status="ready", stages=["a", "b"], stage=2)   # arc complete
         self.assertEqual(agenda.pursuit("Wren", m, [done], sp, 1.0)["step"], "")
 
+    def test_hidden_thread_step_is_not_surfaced(self):
+        # red-team fix: a HIDDEN own-thread's concrete staged step is director-only — it must not appear in
+        # the pursuit line (which reaches the player via _pursues_clause). The abstract status may still show.
+        sp = _camp() / "state.json"
+        m = npc.moral_read("to escape the college", "")
+        th = threads.Thread(id=threads.make_id("Wren to escape the college"), question="q",
+                            entities=["Wren"], readiness=0.5, status="ripening",
+                            stages=["forge a pass", "bribe the gatekeeper"], stage=1, hidden=True)
+        p = agenda.pursuit("Wren", m, [th], sp, 1.0)
+        self.assertEqual(p["step"], "")                                   # the concrete plan is redacted
+        self.assertNotIn("bribe the gatekeeper", agenda.line_of(p))
+        th.hidden = False                                                 # a VISIBLE counterpart still surfaces it
+        self.assertEqual(agenda.pursuit("Wren", m, [th], sp, 1.0)["step"], "bribe the gatekeeper")
+
 
 class LineTest(unittest.TestCase):
     def test_line_reads_as_a_pursuit(self):

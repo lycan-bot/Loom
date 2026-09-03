@@ -66,6 +66,8 @@ def _clean(f):
     if not subj or not attr or not val or not keyable(subj, attr):
         return None                                    # empty, or a subject/attribute that norms to '' (collides)
     out = {"subject": subj, "attribute": attr, "value": val}
+    if f.get("hidden"):                                # director-known: characters do NOT know it — kept OUT of the
+        out["hidden"] = True                           # character-facing read (clause_visible); omitted when false
     if f.get("since") is not None:
         try:
             out["since"] = int(f["since"])
@@ -103,7 +105,7 @@ def describe(fact) -> str:
     return f"{fact['subject']} — {fact['attribute']}: {fact['value']}"
 
 
-def upsert(facts, subject, attribute, value, since=None, source="play"):
+def upsert(facts, subject, attribute, value, since=None, source="play", hidden=False):
     """PURE supersede on an in-memory fact list — the single owner of keying/supersession, so both
     set_fact (its own save) and the batched consolidate.apply (one save) share it. Returns
     (new_facts, {applied, old, new, reversal}); `applied` is False for a no-op (unchanged) or an empty
@@ -124,6 +126,8 @@ def upsert(facts, subject, attribute, value, since=None, source="play"):
         return clean, {"applied": False, "old": old, "new": value, "reversal": False}   # no-op: unchanged
     rev = bool(old is not None and provenance.is_reversal("world", old, value))
     fact = {"subject": subject, "attribute": attribute, "value": value, "source": source or "play"}
+    if hidden:                                             # ride the DATA (the signal), not the caller — a hidden
+        fact["hidden"] = True                              # fact is redacted at the source read (clause_visible)
     if since is not None:
         try:
             fact["since"] = int(since)
@@ -135,12 +139,12 @@ def upsert(facts, subject, attribute, value, since=None, source="play"):
     return kept, {"applied": True, "old": old, "new": value, "reversal": rev}
 
 
-def set_fact(spath, subject, attribute, value, since=None, source="play") -> dict:
+def set_fact(spath, subject, attribute, value, since=None, source="play", hidden=False) -> dict:
     """Set/supersede one world fact in state.json's _world, keyed by (subject, attribute). If the value
     CHANGED, log the old->new via provenance (never a blind clobber). Returns {applied, old, new,
     reversal}. The single-writer entry point for a standalone edit (an operator set, a test)."""
     st = state.load(spath)
-    kept, delta = upsert(st.get(_KEY), subject, attribute, value, since=since, source=source)
+    kept, delta = upsert(st.get(_KEY), subject, attribute, value, since=since, source=source, hidden=hidden)
     if not delta["applied"]:
         return delta
     st[_KEY] = kept
@@ -202,3 +206,16 @@ def clause(facts, subjects=None, cap=40) -> str:
     if not rows:
         return ""
     return "\n".join(f"- {describe(f)}" for f in rows[:cap])
+
+
+def clause_visible(facts, subjects=None, cap=40) -> str:
+    """The CHARACTER-facing grounding read — excludes HIDDEN facts before describe(), so the narrator's
+    grounding view can never STATE a fact the director alone knows. narrate._world_clause (the one in-fiction
+    reader) uses this; every other reader is operator-facing (the director console) and keeps full visibility."""
+    return clause([f for f in facts if not f.get("hidden")], subjects=subjects, cap=cap)
+
+
+def clause_hidden(facts, subjects=None, cap=40) -> str:
+    """The DIRECTOR-side read — ONLY hidden facts, for the foreshadow clause (Brick D). The narrator may
+    FORESHADOW these (an omen, an unease) but never STATE them until a blessed reveal clears the flag."""
+    return clause([f for f in facts if f.get("hidden")], subjects=subjects, cap=cap)

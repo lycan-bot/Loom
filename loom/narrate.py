@@ -138,7 +138,7 @@ def _world_clause(nodes, spath, player_input, cfg) -> str:
         (n.get("name", "") + " " + n.get("body", "")) for n in nodes if n.get("score", 0.0) > 0)
     blob = " " + world_state._norm(scene) + " "
     in_scene = [f for f in facts if world_state._norm(f["subject"]) and (" " + world_state._norm(f["subject"]) + " ") in blob]
-    body = world_state.clause(in_scene)
+    body = world_state.clause_visible(in_scene)   # Brick A: redact director-only (hidden) facts at the source
     if not body:
         return ""
     return ("\n\nWORLD STATE (concrete things true RIGHT NOW — do not contradict these; any of them changes "

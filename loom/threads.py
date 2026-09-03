@@ -45,6 +45,7 @@ class Thread:
     stages: list = field(default_factory=list)   # optional arc: successive payoff beats
     stage: int = 0                      # position along the arc
     ready_beats: int = 0                # consecutive player-turns spent 'ready' without paying off (staleness)
+    hidden: bool = False                # director-known; characters do NOT know it (drives foreshadow-only framing)
 
 
 def load(path) -> list:
@@ -78,6 +79,7 @@ def load(path) -> list:
                 th.ready_beats = max(0, int(th.ready_beats))
             except (TypeError, ValueError):
                 th.ready_beats = 0
+            th.hidden = bool(th.hidden)          # fail-soft: a hand-edited non-bool can't crash advance()
             if not isinstance(th.entities, list):
                 th.entities = []
             if not isinstance(th.stages, list):

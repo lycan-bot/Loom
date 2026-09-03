@@ -64,6 +64,28 @@ class AdvanceTest(unittest.TestCase):
             llm.complete = orig
         self.assertEqual(r["recap"], "")                    # fail-soft: no recap, no crash
 
+    def test_hidden_clock_stays_out_of_the_sleep_recap(self):
+        # red-team fix: a HIDDEN clock ticks to ready but is director-only — never in `due`, so its question
+        # never reaches the player-facing 'while you were away' recap, and it does not silently resolve.
+        camp = _camp()
+        canon.write_node(camp / "world", "Dockhand", "a weary dockhand", {"kind": "character", "wants": "to leave"})
+        threads.save(camp / "threads.json", [Thread("secret", "the sleeping god wakes beneath the harbor",
+                                                    kind="clock", status="ripening", clock=1, hidden=True)])
+        cfg = dict(config.DEFAULTS); cfg["depth"] = 1.0; cfg["sleep_moves"] = 2
+        cap = {}
+        orig = llm.complete
+        llm.complete = lambda prompt, c, **k: (cap.__setitem__("p", prompt),
+                                               '{"recap":"The dockhand asked after berths.","resolved":[]}')[1]
+        try:
+            r = sleep.advance(cfg, camp / "world", camp / "threads.json")
+        finally:
+            llm.complete = orig
+        self.assertEqual(r["due"], [])                        # the hidden clock is not due-surfaced…
+        self.assertIn("Dockhand", r["moves"])                 # (a visible mover still drives the recap)
+        self.assertNotIn("sleeping god", cap["p"])            # …its secret never reaches the recap prompt
+        saved = {t.id: t.status for t in r["threads"]}
+        self.assertNotEqual(saved["secret"], "resolved")      # and it did NOT resolve — it waits for the reveal
+
 
 class NpcMovesTest(unittest.TestCase):
     def test_characters_move_and_feed_the_recap(self):

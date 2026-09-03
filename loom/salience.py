@@ -62,7 +62,7 @@ def scores(world: Path, spath: Path) -> dict:
     read; deterministic. {name: score}."""
     nodes = canon.load_all(world)
     ths = [t for t in _threads.load(Path(spath).parent / "threads.json")
-           if getattr(t, "status", "") != "resolved"]
+           if getattr(t, "status", "") != "resolved" and not getattr(t, "hidden", False)]  # hidden: no tier-promote (leak-safe)
     st = state.load(spath)
     rep = st.get("_rep") if isinstance(st.get("_rep"), dict) else {}
     deg = _degree(nodes)
@@ -88,7 +88,7 @@ def classify(world: Path, tpath: Path, spath: Path) -> list:
     standing}]}. Empty tiers are included (the UI hides them). Pure read — writes nothing."""
     nodes = canon.load_all(world)
     ths = [t for t in _threads.load(Path(spath).parent / "threads.json")
-           if getattr(t, "status", "") != "resolved"]
+           if getattr(t, "status", "") != "resolved" and not getattr(t, "hidden", False)]  # hidden: no tier-promote (leak-safe)
     st = state.load(spath)
     rep = st.get("_rep") if isinstance(st.get("_rep"), dict) else {}
     # split the log by role: the PLAYER's mentions anchor salience at full weight; the NARRATOR's prose

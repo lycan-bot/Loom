@@ -27,7 +27,13 @@ class Beat:
 
 def decide(threads, scene_names, pacing, newly_seeded=None) -> Beat:
     scene = set(scene_names or [])
-    newly_seeded = newly_seeded or []
+    # a HIDDEN thread is director-only: it must never drive a STATING beat (payoff/world) or even a seed.
+    # It ripens silently (advance() still ticks it) and surfaces ONLY through the gated foreshadow clause,
+    # until a blessed reveal clears the flag (Brick E un-hides it BEFORE it can pay off). Redact it from
+    # every candidate set here — the director-beat consumer of the shared `hidden` signal, mirroring
+    # world.clause_visible + the salience guard so no consumer of the signal is missed.
+    threads = [t for t in threads if not getattr(t, "hidden", False)]
+    newly_seeded = [t for t in (newly_seeded or []) if not getattr(t, "hidden", False)]
     calm = pacing.tension < _TENSION_CEIL
 
     near = [t for t in threads if t.kind == "question" and t.status != "resolved"

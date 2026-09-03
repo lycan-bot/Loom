@@ -1,5 +1,6 @@
 """The plan above canon: threads ripen with proximity + time, activate only when the
 player is near their subject, and clocks tick down. Pure, offline."""
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -68,6 +69,32 @@ class ThreadsTest(unittest.TestCase):
         back = threads.load(d)
         self.assertEqual(back[0].stages, ["one", "two"])
         self.assertEqual(back[0].stage, 1)
+
+    def test_hidden_defaults_false_on_legacy(self):
+        # a legacy threads.json (no 'hidden' key) loads with hidden False and advance() doesn't crash
+        d = Path(tempfile.mkdtemp()) / "threads.json"
+        d.write_text('[{"id":"a","question":"q","entities":["N"]}]')
+        back = threads.load(d)
+        self.assertEqual(back[0].hidden, False)
+        threads.advance(back, ["N"])                          # no crash
+
+    def test_hidden_coerces_fail_soft(self):
+        # a hand-edited non-bool hidden coerces to bool without crashing load()/advance()
+        d = Path(tempfile.mkdtemp()) / "threads.json"
+        d.write_text('[{"id":"a","question":"q","hidden":"yes"},{"id":"b","question":"q2","hidden":1}]')
+        back = threads.load(d)
+        self.assertEqual([t.hidden for t in back], [True, True])
+        threads.advance(back, [])                             # no crash
+
+    def test_hidden_roundtrips_and_is_the_known_ondisk_delta(self):
+        # hidden survives save→load; and asdict now emits 'hidden' for EVERY thread (the reviewed on-disk delta)
+        d = Path(tempfile.mkdtemp()) / "threads.json"
+        threads.save(d, [Thread("a", "q", hidden=True), Thread("b", "q2")])
+        back = threads.load(d)
+        self.assertEqual([t.hidden for t in back], [True, False])
+        raw = json.loads(d.read_text())
+        self.assertEqual(raw[0]["hidden"], True)
+        self.assertEqual(raw[1]["hidden"], False)             # additive delta: every thread now serializes 'hidden'
 
 
 if __name__ == "__main__":

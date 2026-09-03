@@ -67,6 +67,18 @@ class DirectorTest(unittest.TestCase):
         t.stage = 1
         self.assertIn("the truth is spoken", director.clause(director.Beat("payoff", t)))
 
+    def test_hidden_thread_never_becomes_a_stating_beat(self):
+        # red-team fix: a HIDDEN thread is director-only — it must never drive a payoff/world/seed beat,
+        # whose text folds verbatim into the narrator prompt. It ripens silently; Brick D's gated foreshadow
+        # clause is its only surface, and Brick E un-hides it BEFORE it can pay off.
+        ready = Thread("x", "the abbot is the cult's high priest", status="ready", readiness=0.9,
+                       entities=["The Abbey"], hidden=True)
+        self.assertEqual(director.decide([ready], ["The Abbey"], P("offer", 0.2), []).mode, "hook")   # not payoff
+        clock = Thread("s", "the summoning begins", kind="clock", status="ready", entities=["World"], hidden=True)
+        self.assertEqual(director.decide([clock], ["Harbor"], P("hold", 0.2), []).mode, "none")        # not world
+        seed = Thread("y", "a sealed god stirs", status="seeded", entities=["The Abbey"], hidden=True)
+        self.assertEqual(director.decide([seed], ["The Abbey"], P("hold", 0.2), [seed]).mode, "none")  # not seed
+
 
 if __name__ == "__main__":
     unittest.main()

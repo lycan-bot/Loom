@@ -50,7 +50,10 @@ def advance(cfg, world, threads_path):
                     t.status = "ready"
     # only CLOCKS resolve during sleep — autonomous scheduled events. Question-threads ripen by
     # player-proximity and are player-facing beats; firing them here would pre-empt a live-play payoff.
-    due = [t for t in th if t.status == "ready" and t.kind == "clock"]
+    # a HIDDEN clock is director-only: it still TICKS to ready (above) but must not surface — excluded from
+    # `due` so its question never reaches the player-facing recap and it does not silently resolve; it waits
+    # for a blessed reveal (Brick E). Mirrors the salience/world/director guards on the shared `hidden` signal.
+    due = [t for t in th if t.status == "ready" and t.kind == "clock" and not getattr(t, "hidden", False)]
 
     # the world's PEOPLE move too: a bounded, depth-scaled set of characters with a want each take a
     # small in-character step toward it while the player is away (grounded, propose-only, and — unlike

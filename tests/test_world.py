@@ -108,6 +108,40 @@ class StoreTest(unittest.TestCase):
         self.assertNotIn("vault", only)
         self.assertEqual(world.clause([]), "")
 
+    def test_hidden_fact_excluded_from_visible_clause(self):
+        # Brick A: a director-only (hidden) fact is redacted from the character-facing read, kept for the director
+        sp = _sp()
+        world.set_fact(sp, "the north gate", "state", "locked")                      # visible
+        world.set_fact(sp, "the vault", "state", "warded by a sleeping god", hidden=True)  # director-only
+        facts = world.load(sp)
+        vis = world.clause_visible(facts)
+        self.assertIn("north gate", vis)
+        self.assertNotIn("vault", vis)                                               # hidden never in the visible read
+        hid = world.clause_hidden(facts)
+        self.assertIn("vault", hid)                                                  # …but present in the director read
+        self.assertNotIn("north gate", hid)
+
+    def test_existing_fact_loads_visible_byte_identical(self):
+        # a legacy fact (no 'hidden' key) round-trips through _clean with no key added → stays visible/known
+        cleaned = world._clean({"subject": "door", "attribute": "state", "value": "open"})
+        self.assertNotIn("hidden", cleaned)                                          # omitted-when-absent
+        self.assertIn("door", world.clause_visible([cleaned]))
+
+    def test_hidden_only_when_truthy(self):
+        # the load-bearing byte-identical guarantee: the key is written ONLY when truthy
+        self.assertNotIn("hidden", world._clean({"subject": "d", "attribute": "s", "value": "x", "hidden": False}))
+        self.assertNotIn("hidden", world._clean({"subject": "d", "attribute": "s", "value": "x"}))
+        self.assertIs(world._clean({"subject": "d", "attribute": "s", "value": "x", "hidden": True})["hidden"], True)
+
+    def test_upsert_supersede_shares_slot(self):
+        # Brick E reveal precondition: a hidden fact and its (value-changing) reveal share ONE slot, not forked
+        facts, _ = world.upsert([], "the vault", "state", "sealed", hidden=True)
+        self.assertIs(facts[0].get("hidden"), True)
+        facts, delta = world.upsert(facts, "The Vault", "State", "open")             # norm-keyed same slot, a change
+        self.assertTrue(delta["applied"]); self.assertEqual(delta["old"], "sealed")
+        self.assertEqual(len(facts), 1)                                              # superseded in-slot, not forked
+        self.assertNotIn("hidden", facts[0])                                         # a value-change supersede clears it
+
 
 class DiodeTest(unittest.TestCase):
     """world facts fold through the same propose->apply diode as state/reputation, with provenance."""
@@ -221,6 +255,16 @@ class GroundingTest(unittest.TestCase):
         sp = _sp()
         cfg = dict(config.DEFAULTS); cfg["world_state"] = True
         self.assertEqual(narrate._world_clause(self._nodes(), sp, "hello", cfg), "")
+
+    def test_hidden_fact_never_reaches_the_world_state_block(self):
+        # the diode leak test: with world_state ON, a HIDDEN fact must NOT reach the character-facing block
+        sp = _sp()
+        world.set_fact(sp, "the north gate", "state", "locked")                              # visible, in scene
+        world.set_fact(sp, "north gate", "true nature", "a sealed god's tomb", hidden=True)  # director-only
+        cfg = dict(config.DEFAULTS); cfg["world_state"] = True
+        cl = narrate._world_clause(self._nodes(), sp, "I approach the gate", cfg)
+        self.assertIn("the north gate is locked", cl)                                        # visible fact grounds
+        self.assertNotIn("tomb", cl)                                                         # hidden fact never leaks
 
 
 if __name__ == "__main__":
