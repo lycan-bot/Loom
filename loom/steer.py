@@ -13,6 +13,7 @@ ignores the scale (harmless). State lives in `_steer` — internal, so it rides 
 `_tension`/`_memory` and is excluded from the facts view.
 """
 from __future__ import annotations
+import re
 from . import tone
 
 _SNAP_DELTA = 3.0        # a big shift (walking into a strongly-toned place) snaps; a small one drifts
@@ -45,3 +46,39 @@ def compose(weights: dict):
     if not weights:
         return None
     return weights.get("tone")
+
+
+# --- the runtime shatter clamp (LIVING_WORLD_VECTORS §5): the FLOOR/CEIL band bounds the scale, but a
+# generation can still collapse WITHIN it (and composed axes shatter below their solo sweet spots). No
+# automated shatter detector existed; this is the "wired as a runtime clamp" the doc calls for. ---
+
+_MIN_TOKENS = 12         # too short to judge — a brief line isn't a loop
+_UNIQUE_FLOOR = 0.35     # unique/total below this over real length = a collapsed vocabulary (normal prose ~0.6+)
+_RUN_LIMIT = 5           # one token repeated this many times in a row = the '1 1 1 1' attractor
+
+
+def shattered(text) -> bool:
+    """A deterministic tell that a control-vector scale collapsed the generation into a degenerate
+    repetition loop (STEERING.md's '11 11 1 1'): a tiny vocabulary over enough length, or a single token
+    repeated in a long consecutive run. Tuned to fire ONLY on real degeneration, not ordinary prose."""
+    toks = re.findall(r"[^\W_]+", str(text or "").lower())
+    if len(toks) < _MIN_TOKENS:
+        return False
+    if len(set(toks)) / len(toks) < _UNIQUE_FLOOR:       # collapsed vocabulary over real length
+        return True
+    run, prev = 1, None
+    for t in toks:
+        run = run + 1 if t == prev else 1
+        if run >= _RUN_LIMIT:                            # a long consecutive run of one token
+            return True
+        prev = t
+    return False
+
+
+def declamp(scale):
+    """Ease a control-vector scale toward neutral (halve its magnitude) — the runtime response to a
+    detected shatter, so the register survives but the degenerate attractor is escaped. None on a bad type."""
+    try:
+        return round(float(scale) * 0.5, 2)
+    except (TypeError, ValueError):
+        return None

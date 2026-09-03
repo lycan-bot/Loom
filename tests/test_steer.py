@@ -75,5 +75,54 @@ class NarrateTest(unittest.TestCase):
         self.assertIsNone(cap["scale"])                                            # no scale sent
 
 
+class ShatterTest(unittest.TestCase):
+    def test_shattered_detects_degeneration_and_spares_prose(self):
+        self.assertTrue(steer.shattered("1 1 1 1 1 1 1 1 1 1 1 1 1 1"))               # the '1 1 1' attractor
+        self.assertTrue(steer.shattered("cold cold cold cold cold cold cold cold dark dark dark dark"))  # tiny vocab
+        self.assertFalse(steer.shattered("The lantern gutters as Wren steps into the vault, blade drawn."))
+        self.assertFalse(steer.shattered("too short to be judged"))                  # under the min length
+
+    def test_declamp_eases_toward_neutral(self):
+        self.assertEqual(steer.declamp(4.0), 2.0)
+        self.assertEqual(steer.declamp(-3.0), -1.5)
+        self.assertIsNone(steer.declamp(None))
+
+    def test_runtime_clamp_rerolls_a_shattered_generation(self):
+        camp = _camp()
+        canon.write_node(camp / "world", "World", "grim horror",
+                         {"kind": "lore", "setting": "true", "genre": "grim horror"})
+        state.save(camp / "state.json", {"_tension": 0.9})
+        cfg = dict(config.DEFAULTS); cfg["tone_steer"] = True; cfg["depth"] = 0   # depth 0 → no referee model call
+        scales = []
+        outs = iter(["1 1 1 1 1 1 1 1 1 1 1 1 1", "A steady, grim beat unfolds in the hall."])
+        orig = llm.chat
+
+        def fake(m, c, **k):
+            scales.append(k.get("control_vector_scale"))
+            return next(outs)
+
+        llm.chat = fake
+        try:
+            final = narrate.turn("I enter.", cfg, camp / "t.jsonl", camp / "world", camp / "state.json")
+        finally:
+            llm.chat = orig
+        self.assertIn("grim beat", final)              # the clean re-roll reached the player, not the shatter
+        self.assertEqual(len(scales), 2)               # exactly one clamp re-roll
+        self.assertEqual(scales[1], steer.declamp(scales[0]))   # re-rolled at a scale eased toward neutral
+
+    def test_no_reroll_when_steering_off(self):
+        # byte-identical when off: a shattered-looking output is NOT re-rolled if steering isn't active
+        cfg = dict(config.DEFAULTS); cfg["tone_steer"] = False
+        calls = []
+        orig = llm.chat
+        llm.chat = lambda m, c, **k: (calls.append(1), "x")[1]
+        try:
+            out = narrate._declamp_if_shattered("1 1 1 1 1 1 1 1 1 1 1 1", ["m"], None, cfg)
+        finally:
+            llm.chat = orig
+        self.assertEqual(out, "1 1 1 1 1 1 1 1 1 1 1 1")
+        self.assertEqual(calls, [])                     # no model call
+
+
 if __name__ == "__main__":
     unittest.main()

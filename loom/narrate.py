@@ -369,9 +369,27 @@ def _maybe_update_memory(cfg, tpath, spath):
         state.save(spath, st)
 
 
+def _declamp_if_shattered(narration, messages, tscale, cfg):
+    """The runtime shatter clamp: if steering is active and the generation collapsed into a degenerate
+    repetition loop, re-roll ONCE at a scale eased toward neutral, then (if still shattered) with steering
+    dropped entirely — so a bad context-driven control-vector scale can't ship broken prose to the player.
+    Byte-identical when steering is off or the output is clean (no extra model call)."""
+    if not cfg.get("tone_steer") or tscale is None or not steer.shattered(narration):
+        return narration
+    for scale in (steer.declamp(tscale), None):          # ease toward neutral, then drop the vector
+        try:
+            retry = llm.chat(messages, cfg, control_vector_scale=scale)
+        except Exception:
+            return narration
+        if retry.strip() and not steer.shattered(retry):
+            return retry
+    return narration                                     # even the base model shattered → nothing better to do
+
+
 def turn(player_input: str, cfg: dict, tpath: Path, world: Path, spath: Path) -> str:
     ctx = _prepare(player_input, cfg, tpath, world, spath)
     narration = llm.chat(ctx.messages, cfg, control_vector_scale=ctx.tscale)
+    narration = _declamp_if_shattered(narration, ctx.messages, ctx.tscale, cfg)
     return _finalize(narration, ctx)
 
 
@@ -415,6 +433,7 @@ def resume(cfg: dict, tpath: Path, world: Path, spath: Path) -> str:
 
     tscale = steer.compose(steer.read(st)) if cfg.get("tone_steer") else None   # current register (don't advance)
     more = llm.chat(messages, cfg, control_vector_scale=tscale)
+    more = _declamp_if_shattered(more, messages, tscale, cfg)
     if not more.strip() or sec.looks_compromised(more):
         return ""
     sep = "\n\n" if last_text.rstrip()[-1:] in '.!?"”' else " "   # new para if it ended cleanly, else splice
@@ -452,6 +471,7 @@ def turn_stream(player_input: str, cfg: dict, tpath: Path, world: Path, spath: P
         if i % 6 == 0 and sec.looks_compromised("".join(acc)):
             break
     streamed = llm.strip_think_blocks("".join(acc))
+    streamed = _declamp_if_shattered(streamed, ctx.messages, ctx.tscale, cfg)   # a shattered stream → re-rolled clean
     final = _finalize(streamed, ctx)          # authoritative guard + referee + commit (the diode)
     if final != streamed:
         yield ("replace", final)
