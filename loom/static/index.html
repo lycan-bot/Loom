@@ -746,7 +746,8 @@ function _mindPanel(d){
   if(d.mood) h+=`<div class="crow"><span class="clabel">mood</span> ${esc(d.mood)}</div>`;
   const ag=d.agenda||{};
   if(ag.goal){ h+=`<div class="crow"><span class="clabel">goal</span> ${esc(ag.goal)}${ag.opposes?` <span style="color:var(--muted)">— held by ${esc(ag.opposes)}</span>`:""}</div>`;
-    if(ag.status) h+=`<div class="crow"><span class="clabel">pursuit</span> ${esc(ag.status)}</div>`; }
+    if(ag.status) h+=`<div class="crow"><span class="clabel">pursuit</span> ${esc(ag.status)}</div>`;
+    if(ag.step) h+=`<div class="crow"><span class="clabel">step</span> ${esc(ag.step)}</div>`; }
   const mem=(rows,lab)=>rows&&rows.length?`<div class="memh" style="margin-top:10px">${lab}</div>`+rows.slice(0,5).map(r=>`<div class="ev" style="cursor:default"><span class="evk">${r.source==="world"?"~":"·"}</span>${esc(r.what)}</div>`).join(""):"";
   h+=mem(d.remembers,"what they've done");
   h+=mem(d.remembers_player,"what they remember of you");

@@ -64,6 +64,15 @@ def pursuit(name, moral, thread_list, spath, rung, own_only=False) -> dict:
     if not want or float(rung or 0) <= 0:
         return {}
     thread = _thread_for(name, want, thread_list, own_only=own_only)
+    # a staged thread carries an ARC (successive payoff beats); the CURRENT step is the goal in front of the
+    # NPC right now, so a multi-step pursuit reads "wants X … the step in front: bribe the gatekeeper" rather
+    # than restating the whole want every beat. Director-advanced (blessed), so it's not self-propagating.
+    step = ""
+    stages = getattr(thread, "stages", None) if thread is not None else None
+    if isinstance(stages, list) and stages:
+        idx = int(getattr(thread, "stage", 0) or 0)
+        if 0 <= idx < len(stages) and isinstance(stages[idx], str):
+            step = stages[idx].strip()
     k = salience.recall_k(rung)
     # the NPC's RECENT blessed beats — what it actually, verifiably did (its pursuit history). Recent
     # rather than BM25-on-the-want: the NPC acts on its goal, so its latest acts ARE the pursuit, and
@@ -75,6 +84,7 @@ def pursuit(name, moral, thread_list, spath, rung, own_only=False) -> dict:
         "opposes": (getattr(moral, "against", "") or "").strip(),
         "status": _status(thread),
         "readiness": round(float(getattr(thread, "readiness", 0.0) or 0.0), 2) if thread else 0.0,
+        "step": step,
         "remembers": [str(e.get("what", "")).strip() for e in remembers],
     }
 
@@ -94,6 +104,8 @@ def line_of(p) -> str:
     if p["opposes"]:
         bits.append(f"held back by {p['opposes']}")
     out = "; ".join(bits) + f". Their pursuit is {p['status']}."
+    if p.get("step"):
+        out += f" The step in front of them: {p['step']}."
     if p["remembers"]:
         out += " Toward it they have: " + "; ".join(p["remembers"][:3]) + "."
     return out

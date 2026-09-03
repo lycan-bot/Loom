@@ -58,6 +58,27 @@ class PursuitTest(unittest.TestCase):
         self.assertEqual(len(side["remembers"]), 2)
         self.assertEqual(len(main["remembers"]), 4)
 
+    def test_pursuit_reads_the_current_stage(self):
+        sp = _camp() / "state.json"
+        m = npc.moral_read("to escape the college", "")
+        th = threads.Thread(id=threads.make_id("Wren to escape the college"), question="q",
+                            entities=["Wren"], readiness=0.5, status="ripening",
+                            stages=["forge a pass", "bribe the gatekeeper", "slip out at dawn"], stage=1)
+        p = agenda.pursuit("Wren", m, [th], sp, 1.0)
+        self.assertEqual(p["step"], "bribe the gatekeeper")              # the CURRENT step of the arc
+        ln = agenda.line_of(p)
+        self.assertIn("wants to escape the college", ln)                # the overall goal…
+        self.assertIn("bribe the gatekeeper", ln)                       # …and the step in front
+
+    def test_pursuit_step_empty_without_stages_or_past_the_end(self):
+        sp = _camp() / "state.json"
+        m = npc.moral_read("to escape", "")
+        plain = agenda.pursuit("Wren", m, [_rel_thread("Wren", "to escape", 0.5, "ripening")], sp, 1.0)
+        self.assertEqual(plain["step"], "")                             # no stages → no step
+        done = threads.Thread(id=threads.make_id("Wren to escape"), question="q", entities=["Wren"],
+                              readiness=0.8, status="ready", stages=["a", "b"], stage=2)   # arc complete
+        self.assertEqual(agenda.pursuit("Wren", m, [done], sp, 1.0)["step"], "")
+
 
 class LineTest(unittest.TestCase):
     def test_line_reads_as_a_pursuit(self):
