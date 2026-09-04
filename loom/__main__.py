@@ -14,6 +14,7 @@ Usage:
   python -m loom imagine [--yes]        dream new threads from the canon (imagination organ)
   python -m loom sleep [--yes]          advance the world between sessions (depth-gated)
   python -m loom world                  play one world round — major NPCs take their turns
+  python -m loom clock "<event>" <n>    seed a countdown (add 'hidden' for a director-only horizon)
   python -m loom world-show on|off      toggle showing the world round each turn during play
   python -m loom mechanics on|off       toggle the optional dice layer (impartial d20)
   python -m loom undo                    take back the last turn (also '/undo' while playing)
@@ -533,6 +534,44 @@ def cmd_why(cfg, name):
         print(f"  [{when}] {who}{r.get('field')}: {r.get('old')!r} → {r.get('new')!r}{flag}")
 
 
+def _clock_args(a):
+    """Parse `loom clock` args → (question, span, hidden, seed); question None on bad usage. Pure/testable."""
+    if len(a) < 2:
+        return None, None, False, ""
+    question = str(a[0]).strip()
+    try:
+        span = int(a[1])
+    except (TypeError, ValueError):
+        return question or None, None, False, ""
+    rest = a[2:]
+    hidden = "hidden" in rest or "--hidden" in rest
+    seed = ""
+    if "--seed" in rest:
+        seed = " ".join(rest[rest.index("--seed") + 1:]).strip()
+    return (question or None), span, hidden, seed
+
+
+def cmd_clock(cfg, argv):
+    """Seed a blessed countdown — an authored world clock:
+      loom clock "<what happens>" <beats> [hidden] [--seed "<foreshadow>"]
+    It ticks down one beat per player turn, deterministically (never model-advanced). `hidden` makes it
+    director-only: it foreshadows but never states itself, until a blessed reveal."""
+    question, span, hidden, seed_text = _clock_args(argv[1:])
+    if not question or span is None or span < 1:
+        print('usage: loom clock "<what happens>" <beats≥1> [hidden] [--seed "<foreshadow>"]')
+        return
+    _, _world, spath = _paths(cfg)
+    th, err = threads.seed(spath.parent / "threads.json",
+                           {"question": question, "kind": "clock", "status": "ripening",
+                            "clock": span, "span": span, "hidden": bool(hidden), "seed": seed_text})
+    if err:
+        print("could not seed clock: " + err)
+        return
+    print(f"seeded {'a HIDDEN clock' if hidden else 'a clock'} — '{question}' fires in {span} beat(s).")
+    if hidden:
+        print("  director-only: it ticks silently and only foreshadows, until a blessed reveal (loom reveal).")
+
+
 def main(argv=None):
     argv = argv if argv is not None else sys.argv[1:]
     cfg = config.load()
@@ -567,6 +606,8 @@ def main(argv=None):
         cmd_imagine(cfg, auto="--yes" in argv)
     elif cmd == "sleep":
         cmd_sleep(cfg, auto="--yes" in argv)
+    elif cmd == "clock" and len(argv) > 1:
+        cmd_clock(cfg, argv)
     elif cmd == "generate":
         cmd_generate(cfg, seed=" ".join(a for a in argv[1:] if a != "--yes"), auto="--yes" in argv)
     elif cmd == "world":

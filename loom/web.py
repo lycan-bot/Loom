@@ -109,7 +109,9 @@ def make_handler(cfg: dict):
                 return self._send(200, {"threads": [
                     {"id": t.id, "question": t.question, "kind": t.kind, "status": t.status,
                      "readiness": round(t.readiness, 2), "entities": t.entities, "seed": t.seed,
-                     "payoff": t.payoff} for t in threads.load(spath.parent / "threads.json")]})
+                     "payoff": t.payoff, "clock": t.clock, "span": t.span, "stages": t.stages,
+                     "stage": t.stage, "ready_beats": t.ready_beats, "hidden": t.hidden}
+                    for t in threads.load(spath.parent / "threads.json")]})
             if u.path == "/api/entities":
                 # the confabulation signal: names the narrator keeps using that aren't in canon
                 return self._send(200, {"emergent": extract.emergent(tpath, world)})
@@ -558,19 +560,10 @@ def make_handler(cfg: dict):
                 config.save({"campaign": name})
                 return self._send(200, {"ok": True, "name": name})
             if u.path == "/api/thread/save":
-                t = body.get("thread") or {}
-                q = (t.get("question") or "").strip()
-                if not q:
-                    return self._send(400, {"error": "question required"})
-                thp = spath.parent / "threads.json"
-                tid = t.get("id") or threads.make_id(q)
-                keep = [x for x in threads.load(thp) if x.id != tid]
-                keep.append(threads.Thread(
-                    id=tid, question=q, kind=t.get("kind") or "question",
-                    status=t.get("status") or "dormant", readiness=float(t.get("readiness") or 0.0),
-                    entities=t.get("entities") or [], seed=t.get("seed") or "", payoff=t.get("payoff") or ""))
-                threads.save(thp, keep)
-                return self._send(200, {"ok": True, "id": tid})
+                th, err = threads.seed(spath.parent / "threads.json", body.get("thread") or {})
+                if err:                                          # 409 on an id collision, 400 on bad input
+                    return self._send(409 if "already exists" in err else 400, {"error": err})
+                return self._send(200, {"ok": True, "id": th.id})
             if u.path == "/api/thread/delete":
                 thp = spath.parent / "threads.json"
                 threads.save(thp, [x for x in threads.load(thp) if x.id != body.get("id")])

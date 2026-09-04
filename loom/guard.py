@@ -76,7 +76,8 @@ def stale_thread(nodes, thr):
                     f"the thread '{t.question}' has been ready to pay off for {int(getattr(t, 'ready_beats', 0) or 0)} "
                     "turns — resolve it or let it fire, or it lingers unanswered")
             for t in thr
-            if getattr(t, "status", "") == "ready" and int(getattr(t, "ready_beats", 0) or 0) >= _STALE_READY_BEATS]
+            if getattr(t, "status", "") == "ready" and int(getattr(t, "ready_beats", 0) or 0) >= _STALE_READY_BEATS
+            and not getattr(t, "hidden", False)]        # a hidden clock sits 'ready' by design (awaiting reveal)
 
 
 def location_conflict(nodes, thr):

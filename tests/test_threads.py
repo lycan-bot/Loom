@@ -96,6 +96,79 @@ class ThreadsTest(unittest.TestCase):
         self.assertEqual(raw[0]["hidden"], True)
         self.assertEqual(raw[1]["hidden"], False)             # additive delta: every thread now serializes 'hidden'
 
+    def test_from_dict_coerces_and_defaults(self):
+        # the single seed/coercion site: a raw payload becomes a well-formed Thread; missing id/question → None
+        self.assertIsNone(threads.from_dict({"question": "no id"}))
+        self.assertIsNone(threads.from_dict({"id": "x"}))
+        th = threads.from_dict({"id": "c", "question": "the eclipse", "kind": "clock",
+                                "clock": "30", "span": "30", "hidden": 1, "readiness": "0.5", "stage": "2"})
+        self.assertEqual((th.clock, th.span, th.hidden, th.stage), (30, 30, True, 2))   # coerced from strings/ints
+        self.assertEqual(th.readiness, 0.5)
+        empty = threads.from_dict({"id": "e", "question": "q", "kind": "", "status": ""})
+        self.assertEqual((empty.kind, empty.status), ("question", "dormant"))           # empty → dataclass defaults
+
+    def test_span_defaults_and_is_stable_across_ticks(self):
+        # Brick B: the AUTHORED span is a stable denominator — the clock decrements in place, span does not
+        d = Path(tempfile.mkdtemp()) / "threads.json"
+        threads.save(d, [threads.from_dict({"id": "c", "question": "the storm", "kind": "clock",
+                                            "status": "ripening", "clock": 5, "span": 5})])
+        th = threads.load(d)
+        threads.advance(th, [])                               # one beat
+        self.assertEqual((th[0].clock, th[0].span), (4, 5))   # clock ticks down, span stays the authored length
+        threads.save(d, th)
+        self.assertEqual(threads.load(d)[0].span, 5)          # span survives the roundtrip, immutable
+
+    def test_seeded_clock_ticks_to_ready(self):
+        # the whole point of Brick B: an operator-seeded clock is now a LIVE countdown (was unseedable)
+        d = Path(tempfile.mkdtemp()) / "threads.json"
+        threads.save(d, [threads.from_dict({"id": "c", "question": "the gate opens", "kind": "clock",
+                                            "status": "ripening", "clock": 2, "span": 2})])
+        back = threads.load(d)
+        self.assertEqual((back[0].clock, back[0].span), (2, 2))    # survives save→load
+        threads.advance(back, []); threads.advance(back, [])
+        self.assertEqual(back[0].status, "ready")                  # ticked to ready — a live world clock
+
+    def test_ready_clock_stops_ticking(self):
+        # red-team fix: a clock stops decrementing once 'ready' — a hidden clock is never settled by Brick A,
+        # so without this it would tick into unbounded negative state.
+        t = Thread("c", "the god wakes", kind="clock", status="ripening", clock=2, span=2, hidden=True)
+        for _ in range(6):
+            threads.advance([t], [])
+        self.assertEqual((t.status, t.clock), ("ready", 0))        # stopped at 0, not -4
+
+    def test_seed_new_clock_defaults_span(self):
+        d = Path(tempfile.mkdtemp()) / "threads.json"
+        th, err = threads.seed(d, {"question": "the eclipse comes", "kind": "clock", "clock": 30})
+        self.assertIsNone(err)
+        self.assertEqual((th.kind, th.clock, th.span), ("clock", 30, 30))   # span defaults to the authored clock
+        self.assertEqual(threads.load(d)[0].id, "the-eclipse-comes")
+
+    def test_seed_refuses_no_id_collision_and_preserves_the_clock(self):
+        # red-team fix: a NEW question slugging to an existing clock's id must NOT silently clobber it
+        d = Path(tempfile.mkdtemp()) / "threads.json"
+        threads.seed(d, {"question": "the siege breaks", "kind": "clock", "clock": 12, "hidden": True})
+        th, err = threads.seed(d, {"question": "the siege breaks!!!"})      # make_id → same id, no explicit id
+        self.assertIsNone(th)
+        self.assertIn("already exists", err)
+        kept = threads.load(d)                                              # the clock is untouched
+        self.assertEqual((kept[0].kind, kept[0].clock, kept[0].hidden), ("clock", 12, True))
+
+    def test_seed_explicit_id_is_an_edit(self):
+        d = Path(tempfile.mkdtemp()) / "threads.json"
+        threads.seed(d, {"question": "the siege breaks", "kind": "clock", "clock": 12})
+        th, err = threads.seed(d, {"id": "the-siege-breaks", "question": "the siege finally breaks",
+                                   "kind": "clock", "clock": 5})
+        self.assertIsNone(err)                                             # explicit id → update in place
+        kept = threads.load(d)
+        self.assertEqual(len(kept), 1)
+        self.assertEqual((kept[0].question, kept[0].clock), ("the siege finally breaks", 5))
+
+    def test_seed_refuses_zero_or_negative_clock(self):
+        d = Path(tempfile.mkdtemp()) / "threads.json"
+        self.assertIn(">= 1", threads.seed(d, {"question": "x", "kind": "clock", "clock": 0})[1])
+        self.assertIn(">= 1", threads.seed(d, {"question": "y", "kind": "clock", "clock": -3})[1])
+        self.assertEqual(threads.load(d), [])                              # nothing seeded
+
 
 if __name__ == "__main__":
     unittest.main()

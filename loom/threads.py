@@ -40,12 +40,54 @@ class Thread:
     readiness: float = 0.0              # 0..1
     entities: list = field(default_factory=list)   # canon node names it involves
     clock: object = None                # beats until a clock thread fires (int) or None
+    span: object = None                 # the AUTHORED countdown length captured at seed time (int) or None — a
+                                        # STABLE denominator for foreshadow intensity (clock is decremented in place)
     seed: str = ""                      # the subtle foreshadow to plant
     payoff: str = ""                    # what advancing / answering it looks like (if unstaged)
     stages: list = field(default_factory=list)   # optional arc: successive payoff beats
     stage: int = 0                      # position along the arc
     ready_beats: int = 0                # consecutive player-turns spent 'ready' without paying off (staleness)
     hidden: bool = False                # director-known; characters do NOT know it (drives foreshadow-only framing)
+
+
+def from_dict(t):
+    """Build ONE Thread from a dict — a stored row OR an operator/UI seed payload — with fail-soft
+    coercion so a hand-edited/corrupted value can't crash advance() mid-turn (the pacing enhancement
+    must never fail-closed). Returns None if the row lacks an id or a question. The SINGLE
+    construction+coercion site, shared by load() and the operator seed path (web /api/thread/save + the
+    CLI), so every field (clock, span, stages, hidden, …) is authored through identical coercion."""
+    if not (isinstance(t, dict) and t.get("id") and t.get("question")):
+        return None
+    known = {f.name for f in fields(Thread)}
+    th = Thread(**{k: v for k, v in t.items() if k in known})
+    try:                                         # a non-int clock must not crash advance()
+        th.clock = int(th.clock) if th.clock is not None else None
+    except (TypeError, ValueError):
+        th.clock = None
+    try:                                         # the authored span: a stable denominator, immutable across ticks
+        th.span = int(th.span) if th.span is not None else None
+    except (TypeError, ValueError):
+        th.span = None
+    try:
+        th.readiness = min(1.0, max(0.0, float(th.readiness)))
+    except (TypeError, ValueError):
+        th.readiness = 0.0
+    try:
+        th.stage = max(0, int(th.stage))         # a negative stage would index a stages arc from the end
+    except (TypeError, ValueError):
+        th.stage = 0
+    try:
+        th.ready_beats = max(0, int(th.ready_beats))
+    except (TypeError, ValueError):
+        th.ready_beats = 0
+    th.hidden = bool(th.hidden)                  # fail-soft: a hand-edited non-bool can't crash advance()
+    th.kind = th.kind or "question"              # empty kind/status → the dataclass defaults (matches the seed path)
+    th.status = th.status or "dormant"
+    if not isinstance(th.entities, list):
+        th.entities = []
+    if not isinstance(th.stages, list):
+        th.stages = []
+    return th
 
 
 def load(path) -> list:
@@ -56,36 +98,7 @@ def load(path) -> list:
         raw = json.loads(p.read_text(encoding="utf-8"))
     except Exception:
         return []
-    known = {f.name for f in fields(Thread)}
-    out = []
-    for t in raw if isinstance(raw, list) else []:
-        if isinstance(t, dict) and t.get("id") and t.get("question"):
-            th = Thread(**{k: v for k, v in t.items() if k in known})
-            # coerce every field a hand-edited/corrupted plan file could malform, so a bad value
-            # can't crash advance() mid-turn (fail-soft: the pacing enhancement must never fail-closed)
-            try:                                         # a non-int clock must not crash advance()
-                th.clock = int(th.clock) if th.clock is not None else None
-            except (TypeError, ValueError):
-                th.clock = None
-            try:
-                th.readiness = min(1.0, max(0.0, float(th.readiness)))
-            except (TypeError, ValueError):
-                th.readiness = 0.0
-            try:
-                th.stage = max(0, int(th.stage))     # a negative stage would index a stages arc from the end
-            except (TypeError, ValueError):
-                th.stage = 0
-            try:
-                th.ready_beats = max(0, int(th.ready_beats))
-            except (TypeError, ValueError):
-                th.ready_beats = 0
-            th.hidden = bool(th.hidden)          # fail-soft: a hand-edited non-bool can't crash advance()
-            if not isinstance(th.entities, list):
-                th.entities = []
-            if not isinstance(th.stages, list):
-                th.stages = []
-            out.append(th)
-    return out
+    return [th for th in (from_dict(t) for t in (raw if isinstance(raw, list) else [])) if th is not None]
 
 
 def save(path, threads) -> None:
@@ -104,6 +117,37 @@ def save(path, threads) -> None:
         raise
 
 
+def seed(path, payload):
+    """Upsert one operator-authored thread into threads.json — the shared seed/edit path for the web
+    endpoint AND the CLI, so the collision + clock guards live in ONE place. Returns (thread, error):
+      • a NEW thread (no explicit id) whose derived id COLLIDES with an existing thread is REFUSED
+        (None, msg) — the save would silently clobber it, and a clock carries structural fields
+        (clock/span/hidden) whose loss is destructive; an explicit-id payload is an EDIT and updates.
+      • a clock payload must count down >= 1 beat; span defaults to the authored clock at seed time.
+    Operator-authored (blessed by construction) — no model in the loop for the schedule."""
+    q = str(payload.get("question", "")).strip()
+    if not q:
+        return None, "question required"
+    tid = payload.get("id") or make_id(q)
+    current = load(path)
+    if not payload.get("id") and any(x.id == tid for x in current):
+        return None, "a thread '" + tid + "' already exists — rename the question, or edit that thread"
+    p = {**payload, "id": tid, "question": q}
+    if p.get("clock") is not None:
+        try:
+            if int(p["clock"]) < 1:                       # a 0/negative countdown fires before play — refuse it
+                return None, "clock (beats) must be >= 1"
+        except (TypeError, ValueError):
+            return None, "clock must be an integer number of beats"
+        if p.get("span") is None:
+            p["span"] = p["clock"]                         # capture the AUTHORED length at seed time
+    th = from_dict(p)
+    if th is None:
+        return None, "invalid thread"
+    save(path, [x for x in current if x.id != tid] + [th])
+    return th, None
+
+
 def advance(threads, scene_names) -> list:
     """Ripen every thread by one beat and return the ones newly SEEDED this beat
     (dormant → seeded, i.e. the player just wandered near them — the moment to plant a
@@ -115,7 +159,10 @@ def advance(threads, scene_names) -> list:
         if th.status == "resolved":
             continue
         if th.kind == "clock":
-            if th.clock is not None:
+            # a 'ready' clock has already come due — stop ticking (mirrors how a 'resolved' clock is skipped
+            # above). Without this a director-only (hidden) clock, which Brick A never settles to resolved,
+            # decrements forever into unbounded negative state.
+            if th.clock is not None and th.status != "ready":
                 th.clock -= 1
                 if th.clock <= 0:
                     th.status, th.readiness = "ready", 1.0

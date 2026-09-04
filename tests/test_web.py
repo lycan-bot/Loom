@@ -98,6 +98,15 @@ class WebTest(unittest.TestCase):
         with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/", timeout=5) as r:
             self.assertIn(b"loom", r.read())
 
+    def test_threads_endpoint_exposes_clock_fields(self):
+        # Brick B: the quest-book board must expose the countdown + visibility fields so a seeded clock is
+        # observable (read-only; does not write the live campaign).
+        d = self._get("/api/threads")
+        self.assertIsInstance(d["threads"], list)
+        for t in d["threads"]:
+            for key in ("id", "question", "kind", "clock", "span", "stages", "hidden"):
+                self.assertIn(key, t)
+
 
 if __name__ == "__main__":
     unittest.main()

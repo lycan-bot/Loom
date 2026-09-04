@@ -70,6 +70,15 @@ class GuardTest(unittest.TestCase):
                      [Thread("q", "Will the vault open?", status="resolved", ready_beats=20)])
         self.assertFalse(any(f.kind == "stale-thread" for f in guard.check(camp / "world", camp / "threads.json")))
 
+    def test_stale_thread_excludes_hidden(self):
+        # red-team fix (Brick B): a director-only (hidden) clock sits 'ready' by design (awaiting a blessed
+        # reveal) — it must NOT nag as a forgotten/overdue arc in the operator-facing advisory.
+        camp = _campaign()
+        threads.save(camp / "threads.json",
+                     [Thread("h", "the sleeping god wakes", status="ready", readiness=1.0,
+                             ready_beats=20, hidden=True)])
+        self.assertFalse(any(f.kind == "stale-thread" for f in guard.check(camp / "world", camp / "threads.json")))
+
     def test_location_conflict_flags_a_non_place(self):
         camp = _campaign()
         canon.write_node(camp / "world", "Wren", "a cadet", {"kind": "character"})

@@ -439,7 +439,8 @@ async function newWorld(){
 }
 async function addThread(){
   const q=(prompt("New thread — the open dramatic question:")||"").trim(); if(!q) return;
-  await fetch("/api/thread/save",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({thread:{question:q,status:"seeded",readiness:0.3}})});
+  const r=await fetch("/api/thread/save",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({thread:{question:q,status:"seeded",readiness:0.3}})}).then(x=>x.json()).catch(()=>({}));
+  if(r&&r.error) alert(r.error);   // e.g. an id collision with an existing (possibly clock) thread — rename it
   await loadState();
 }
 async function delThread(id){
