@@ -169,6 +169,15 @@ class ThreadsTest(unittest.TestCase):
         self.assertIn(">= 1", threads.seed(d, {"question": "y", "kind": "clock", "clock": -3})[1])
         self.assertEqual(threads.load(d), [])                              # nothing seeded
 
+    def test_scope_coerces_and_roundtrips(self):
+        # Brick C: a thread is 'local' or 'horizon' (world-round metaplot); anything else → local (fail-soft)
+        d = Path(tempfile.mkdtemp()) / "threads.json"
+        threads.save(d, [threads.from_dict({"id": "h", "question": "q", "scope": "horizon"}),
+                         threads.from_dict({"id": "l", "question": "q2"}),
+                         threads.from_dict({"id": "b", "question": "q3", "scope": "bogus"})])
+        self.assertEqual({t.id: t.scope for t in threads.load(d)},
+                         {"h": "horizon", "l": "local", "b": "local"})
+
 
 if __name__ == "__main__":
     unittest.main()

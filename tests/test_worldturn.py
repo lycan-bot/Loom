@@ -3,7 +3,7 @@ co-located NPCs couple into an interaction, the rest act solo. Propose-only. Off
 import tempfile
 import unittest
 from pathlib import Path
-from loom import worldturn, canon, npc, llm, config
+from loom import worldturn, canon, npc, llm, config, threads
 
 
 def _world():
@@ -146,6 +146,44 @@ class MaybeRoundTest(unittest.TestCase):
         finally:
             llm.complete = orig
         self.assertTrue(r2 and "pockets a key" in r2[0]["beat"])
+
+
+class HorizonUneaseTest(unittest.TestCase):
+    """Brick C: the world's people feel an escalating, unnamed dread as the blessed horizon clock nears —
+    a pure clock read, gated on cfg.horizon, that never names the hidden threat."""
+
+    def _clock(self, clock, span=10, scope="horizon", status="ripening", hidden=True):
+        return threads.Thread(id="h", question="the sleeping god wakes", kind="clock", status=status,
+                              clock=clock, span=span, scope=scope, hidden=hidden)
+
+    def test_off_and_no_clock_are_byte_identical(self):
+        self.assertEqual(worldturn._horizon_unease(dict(config.DEFAULTS), [self._clock(1)]), "")   # toggle off
+        on = dict(config.DEFAULTS); on["horizon"] = True
+        self.assertEqual(worldturn._horizon_unease(on, [self._clock(1, scope="local")]), "")       # local clock ignored
+        self.assertEqual(worldturn._horizon_unease(on, [self._clock(1, hidden=False)]), "")        # KNOWN horizon: no unnamed dread
+        self.assertEqual(worldturn._horizon_unease(on, []), "")                                     # no clock → ''
+
+    def test_escalates_and_never_names_the_threat(self):
+        on = dict(config.DEFAULTS); on["horizon"] = True
+        far = worldturn._horizon_unease(on, [self._clock(10, span=10)])     # near 0 → faint
+        near = worldturn._horizon_unease(on, [self._clock(1, span=10)])     # near 0.9 → oppressive
+        self.assertTrue(far and near and far != near)                       # non-empty and escalating
+        self.assertNotIn("god wakes", far + near)                           # the hidden threat is never named
+
+    def test_unease_reaches_the_round_prompt(self):
+        w = _world()
+        canon.write_node(w, "Rook", "a rogue", {"kind": "character", "wants": "gold"})
+        threads.save(w.parent / "threads.json", [self._clock(1, span=10)])
+        cfg = dict(config.DEFAULTS); cfg["depth"] = 1.0; cfg["horizon"] = True
+        cap = {}
+        orig = llm.complete
+        llm.complete = lambda prompt, c, **k: (cap.__setitem__("p", prompt), '{"turns":[]}')[1]
+        try:
+            worldturn.run(cfg, w, tpath=w.parent / "transcript.jsonl", spath=w.parent / "state.json")
+        finally:
+            llm.complete = orig
+        self.assertIn("dread", cap["p"].lower())          # the world feels the coming horizon…
+        self.assertNotIn("god wakes", cap["p"])           # …but the specific threat is never stated
 
 
 if __name__ == "__main__":

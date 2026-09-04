@@ -551,6 +551,13 @@ def _clock_args(a):
     return (question or None), span, hidden, seed
 
 
+def _clock_payload(question, span, hidden, seed):
+    """The seed dict for a `loom clock`. A HIDDEN clock is a director-only HORIZON (scope='horizon' → it
+    drives the world's escalating unnamed dread); a visible clock is an ordinary local countdown. Pure."""
+    return {"question": question, "kind": "clock", "status": "ripening", "clock": span, "span": span,
+            "hidden": bool(hidden), "scope": "horizon" if hidden else "local", "seed": seed}
+
+
 def cmd_clock(cfg, argv):
     """Seed a blessed countdown — an authored world clock:
       loom clock "<what happens>" <beats> [hidden] [--seed "<foreshadow>"]
@@ -561,9 +568,7 @@ def cmd_clock(cfg, argv):
         print('usage: loom clock "<what happens>" <beats≥1> [hidden] [--seed "<foreshadow>"]')
         return
     _, _world, spath = _paths(cfg)
-    th, err = threads.seed(spath.parent / "threads.json",
-                           {"question": question, "kind": "clock", "status": "ripening",
-                            "clock": span, "span": span, "hidden": bool(hidden), "seed": seed_text})
+    th, err = threads.seed(spath.parent / "threads.json", _clock_payload(question, span, hidden, seed_text))
     if err:
         print("could not seed clock: " + err)
         return

@@ -155,6 +155,40 @@ def _deliberate(name, moral, thread_list, spath, rung, others, ccfg) -> str:
         return ""
 
 
+# the world FEELS a coming horizon (the blessed clock) without knowing WHAT — a generic, escalating dread
+# scaled by how near the clock is. The specific threat stays the hidden fact; the people only feel the pressure.
+_UNEASE = [
+    "",
+    "\nA faint wrongness hangs at the edge of things — let it barely colour the mood, unnamed.\n",
+    "\nAn unnamed dread is building in the world; the people feel it without knowing its source — let them act warier and tenser, though none can say why.\n",
+    "\nA heavy, oppressive dread grips the world — something is coming that no one can name. Let it press on everything the people do.\n",
+]
+
+
+def _horizon_unease(cfg, thread_list) -> str:
+    """A pure read of the blessed HORIZON clock → a generic 'the world feels a coming dread' instruction for
+    the round prompt, scaled by how near the clock is. The people never learn WHAT is coming (that stays the
+    hidden fact); they only feel the pressure. Reads ONLY the authored clock/span — never any model output —
+    so it cannot self-propagate. '' when horizon is off or no horizon clock is live (byte-identical)."""
+    if not cfg.get("horizon"):
+        return ""
+    found, best = False, 0.0
+    for t in thread_list:
+        # the unnamed dread is specifically a HIDDEN horizon threat (one the characters are not aware of);
+        # a KNOWN horizon clock is a normal, nameable event and gets no unnamed-dread framing.
+        if (getattr(t, "kind", "") != "clock" or getattr(t, "scope", "local") != "horizon"
+                or not getattr(t, "hidden", False)):
+            continue
+        if getattr(t, "status", "") == "resolved" or getattr(t, "clock", None) is None:
+            continue
+        found = True
+        span = t.span if isinstance(getattr(t, "span", None), int) and t.span > 0 else 0
+        best = max(best, (1.0 - max(0, int(t.clock)) / span) if span else 0.5)   # nearer → higher; no span → mid
+    if not found:
+        return ""
+    return _UNEASE[1 if best < 0.5 else (2 if best < 0.85 else 3)]
+
+
 def run(cfg, world, exclude=(), tpath=None, spath=None) -> dict:
     """Play one world round: each group of major NPCs takes a turn. Propose-only — returns the
     turns, writes nothing. `exclude` (names) are in the live scene and skipped. `pending` is True
@@ -250,7 +284,7 @@ def run(cfg, world, exclude=(), tpath=None, spath=None) -> dict:
         # the actors block carries canon wants + names + blessed memory + the (model-authored) intent, and
         # canon is the grounded slice — all untrusted story data → fence it, so an injected want/name/beat
         # can't seize the chronicler (the same discipline narrate/referee already use)
-        raw = llm.complete(sec.UNTRUSTED_PREAMBLE + "\n\n"
+        raw = llm.complete(sec.UNTRUSTED_PREAMBLE + "\n\n" + _horizon_unease(cfg, thread_list)
                            + _ROUND_PROMPT % (sec.wrap("\n".join(lines), "actors"), sec.wrap(canon_text, "canon")),
                            ccfg, max_tokens=400,
                            temperature=0.5, response_format=llm.schema_format("world_round", {

@@ -49,6 +49,7 @@ DEFAULTS = {
     "world_state":      False,  # the symbolic-object layer: ground narration on tracked object/world facts (off → byte-identical)
     "retrieval_log":    False,  # the ablation instrument: log when a player-named canon entity isn't retrieved (embeddings kill-criterion)
     "npc_standing":     False,  # NPC↔NPC standing: track how NPCs regard each other, ground world-round cooperation/conflict (off → byte-identical)
+    "horizon":          False,  # the world-engine spine: hidden director-known facts/threads the narrator FORESHADOWS but never STATES; a blessed clock advances them + the world feels a coming dread (off → byte-identical)
     "tone_steer":       False,  # dynamic tone: send a per-turn control-vector scale (needs the tone vector served)
     "stream":           False,  # stream narration token-by-token (SSE); guard+referee still finalize authoritatively
     "scene_memory":     True,   # keep an advisory 'story so far' in context so details don't scroll out (never canon)

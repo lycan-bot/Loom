@@ -22,6 +22,15 @@ class ClockArgsTest(unittest.TestCase):
         self.assertIsNone(_clock_args(["q", "notanumber"])[1])                           # non-int beats → span None
         self.assertEqual(_clock_args(["q", "notanumber"])[0], "q")                       # …question still parsed
 
+    def test_clock_payload_hidden_is_a_horizon(self):
+        # red-team fix: a hidden CLI clock must carry scope='horizon' or the world-round dread never fires
+        from loom.__main__ import _clock_payload
+        h = _clock_payload("the god wakes", 8, True, "")
+        self.assertEqual((h["scope"], h["hidden"], h["kind"], h["clock"], h["span"]),
+                         ("horizon", True, "clock", 8, 8))
+        v = _clock_payload("the eclipse", 30, False, "")
+        self.assertEqual((v["scope"], v["hidden"]), ("local", False))                    # a visible countdown is local
+
 
 if __name__ == "__main__":
     unittest.main()

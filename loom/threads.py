@@ -48,6 +48,7 @@ class Thread:
     stage: int = 0                      # position along the arc
     ready_beats: int = 0                # consecutive player-turns spent 'ready' without paying off (staleness)
     hidden: bool = False                # director-known; characters do NOT know it (drives foreshadow-only framing)
+    scope: str = "local"                # "local" | "horizon" — a horizon thread is world-round metaplot (Brick C)
 
 
 def from_dict(t):
@@ -81,6 +82,7 @@ def from_dict(t):
     except (TypeError, ValueError):
         th.ready_beats = 0
     th.hidden = bool(th.hidden)                  # fail-soft: a hand-edited non-bool can't crash advance()
+    th.scope = th.scope if th.scope in ("local", "horizon") else "local"
     th.kind = th.kind or "question"              # empty kind/status → the dataclass defaults (matches the seed path)
     th.status = th.status or "dormant"
     if not isinstance(th.entities, list):
