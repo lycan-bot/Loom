@@ -178,6 +178,27 @@ class ThreadsTest(unittest.TestCase):
         self.assertEqual({t.id: t.scope for t in threads.load(d)},
                          {"h": "horizon", "l": "local", "b": "local"})
 
+    def test_horizon_intensity(self):
+        # Brick D: only a live HIDDEN horizon clock counts; intensity = 1 - clock/span, else None
+        T = threads.Thread
+        self.assertIsNone(threads.horizon_intensity([T(id="a", question="q")]))                       # not a clock
+        self.assertIsNone(threads.horizon_intensity([T(id="c", question="q", kind="clock", scope="local",
+                                                       hidden=True, clock=1, span=10)]))              # local scope
+        self.assertIsNone(threads.horizon_intensity([T(id="c", question="q", kind="clock", scope="horizon",
+                                                       hidden=False, clock=1, span=10)]))             # not hidden
+        far = threads.horizon_intensity([T(id="c", question="q", kind="clock", scope="horizon",
+                                          hidden=True, clock=10, span=10)])
+        near = threads.horizon_intensity([T(id="c", question="q", kind="clock", scope="horizon",
+                                           hidden=True, clock=1, span=10)])
+        self.assertAlmostEqual(far, 0.0); self.assertAlmostEqual(near, 0.9)
+
+    def test_player_visible_drops_hidden(self):
+        # red-team fix (Brick D): loom is single-surface — a hidden (director-only) thread must NEVER reach a
+        # player-facing display (the quest-book / the plan sidebar). It appears only once revealed.
+        T = threads.Thread
+        ths = [T(id="a", question="open"), T(id="b", question="secret", hidden=True), T(id="c", question="q2")]
+        self.assertEqual([t.id for t in threads.player_visible(ths)], ["a", "c"])
+
 
 if __name__ == "__main__":
     unittest.main()

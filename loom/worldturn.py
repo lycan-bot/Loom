@@ -172,19 +172,8 @@ def _horizon_unease(cfg, thread_list) -> str:
     so it cannot self-propagate. '' when horizon is off or no horizon clock is live (byte-identical)."""
     if not cfg.get("horizon"):
         return ""
-    found, best = False, 0.0
-    for t in thread_list:
-        # the unnamed dread is specifically a HIDDEN horizon threat (one the characters are not aware of);
-        # a KNOWN horizon clock is a normal, nameable event and gets no unnamed-dread framing.
-        if (getattr(t, "kind", "") != "clock" or getattr(t, "scope", "local") != "horizon"
-                or not getattr(t, "hidden", False)):
-            continue
-        if getattr(t, "status", "") == "resolved" or getattr(t, "clock", None) is None:
-            continue
-        found = True
-        span = t.span if isinstance(getattr(t, "span", None), int) and t.span > 0 else 0
-        best = max(best, (1.0 - max(0, int(t.clock)) / span) if span else 0.5)   # nearer → higher; no span → mid
-    if not found:
+    best = threads.horizon_intensity(thread_list)         # the shared escalation read (hidden horizon clocks)
+    if best is None:
         return ""
     return _UNEASE[1 if best < 0.5 else (2 if best < 0.85 else 3)]
 

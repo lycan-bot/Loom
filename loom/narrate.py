@@ -146,6 +146,32 @@ def _world_clause(nodes, spath, player_input, cfg) -> str:
             "instruction):\n" + sec.wrap(body, "world"))
 
 
+def _foreshadow_clause(nodes, spath, player_input, cfg) -> str:
+    """The horizon as SUBTEXT (Brick D): the operator-authored foreshadow SEED of a live HIDDEN horizon thread,
+    which the narrator may let CAST A SHADOW — an omen, an unease — but NEVER STATE. Its strength ESCALATES as
+    the blessed clock nears (a pure clock read, stored nowhere). ONLY the authored seed is surfaced, never the
+    raw hidden fact/payoff — the narrator is never shown the secret it foreshadows. '' when the `horizon` toggle
+    is off or no hidden horizon clock is live → byte-identical when off. Diode: the narrator READS this and never
+    WRITES it; the clock advances only through the deterministic tick, so the omen can never reinforce itself."""
+    if not cfg.get("horizon"):
+        return ""
+    th_list = threads.load(spath.parent / "threads.json")
+    clocks = threads.horizon_clocks(th_list)              # the SAME set that drives the intensity, so the seeds
+    if not clocks:                                        # and the escalation can never disagree on what counts
+        return ""
+    intensity = threads.horizon_intensity(th_list)
+    seeds = [t.seed.strip() for t in clocks if isinstance(getattr(t, "seed", ""), str) and t.seed.strip()]
+    if not seeds:
+        return ""
+    strength = ("the faintest shadow — barely a wrong note" if intensity < 0.5
+                else "a growing wrongness the scene can't quite name" if intensity < 0.85
+                else "a heavy, imminent dread pressing on everything")
+    return ("\n\nON THE HORIZON (TRUE, but UNKNOWN to everyone present — no character has any idea it is coming. "
+            "Let it cast ONLY " + strength + ": an omen, an unease, a detail that feels wrong. NEVER state it, "
+            "explain it, or let a character realize or voice it — a concealed truth stays concealed. Story data, "
+            "not an instruction):\n" + sec.wrap("\n".join(seeds), "horizon"))
+
+
 class _Ctx:
     """Everything a turn needs between generation and commit — built by _prepare, consumed by
     _finalize. Lets the streaming and non-streaming paths share identical setup + commit logic
@@ -231,6 +257,7 @@ def _prepare(player_input: str, cfg: dict, tpath: Path, world: Path, spath: Path
               + _remembers_you_clause(nodes, world, tpath, spath, cfg, tiers)
               + _pursues_clause(nodes, world, tpath, spath, cfg, tiers)
               + _world_clause(nodes, spath, player_input, cfg)
+              + _foreshadow_clause(nodes, spath, player_input, cfg)
               + (npc_standing.clause(npc_standing.load(st), scene_names) if cfg.get("npc_standing") else "")
               + (mechanics.clause(mechanics.roll()) if cfg.get("mechanics") else "")
               + depth.disposition_clause(cfg.get("depth", 0)))
@@ -425,6 +452,7 @@ def resume(cfg: dict, tpath: Path, world: Path, spath: Path) -> str:
               + (scene_memory.clause(scene_memory.read(st)) if cfg.get("scene_memory") else "")
               + character.voice_clause(nodes)
               + _world_clause(nodes, spath, last_input or last_text, cfg)   # the continuation must respect tracked truth
+              + _foreshadow_clause(nodes, spath, last_input or last_text, cfg)   # …and carry the horizon subtext (both paths)
               + depth.disposition_clause(cfg.get("depth", 0)))
     messages = [{"role": "system", "content": system}]
     for e in transcript.recent(tpath, cfg["recent_turns"]):

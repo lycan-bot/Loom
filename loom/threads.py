@@ -185,3 +185,33 @@ def advance(threads, scene_names) -> list:
         # clears this; a resolved thread is skipped above). A long count = an overdue / forgotten arc.
         th.ready_beats = th.ready_beats + 1 if th.status == "ready" else 0
     return newly_seeded
+
+
+def player_visible(thread_list):
+    """The threads a PLAYER may see — hidden (director-only) threads are dropped. loom is single-surface (no
+    player/operator auth split), so the quest-book and the plan sidebar ARE player-facing: a hidden thread's
+    text must never reach them (it appears only once a blessed reveal clears the flag). The ONE filter for
+    every player-facing thread display."""
+    return [t for t in thread_list if not getattr(t, "hidden", False)]
+
+
+def horizon_clocks(thread_list):
+    """The live HIDDEN horizon clocks — kind='clock', scope='horizon', hidden, not resolved, clock set. The ONE
+    definition of what drives the horizon, shared by the intensity read AND the foreshadow seeds so they can
+    never disagree on which threads count."""
+    return [t for t in thread_list
+            if getattr(t, "kind", "") == "clock" and getattr(t, "scope", "local") == "horizon"
+            and getattr(t, "hidden", False) and getattr(t, "status", "") != "resolved"
+            and getattr(t, "clock", None) is not None]
+
+
+def horizon_intensity(thread_list):
+    """The max 'nearness' (0..1) across live HIDDEN horizon clocks — 1 - clock/span — the escalation signal
+    shared by the foreshadow clause and the world-round unease, or None when no hidden horizon clock is live.
+    A pure read of authored clock/span (never model output), so it cannot self-propagate."""
+    best = None
+    for t in horizon_clocks(thread_list):
+        span = t.span if isinstance(getattr(t, "span", None), int) and t.span > 0 else 0
+        near = (1.0 - max(0, int(t.clock)) / span) if span else 0.5
+        best = near if best is None else max(best, near)
+    return best

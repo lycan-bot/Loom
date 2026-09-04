@@ -95,8 +95,8 @@ def make_handler(cfg: dict):
                                    for w, e in sorted(rep.items()) if isinstance(e, dict)],
                     "can_undo": undo.can_undo(tpath, spath),   # floor-aware: a consolidated turn is not undoable
                     "threads": [{"id": t.id, "question": t.question, "status": t.status,
-                                 "readiness": round(t.readiness, 2)} for t in th
-                                if t.status != "resolved"],
+                                 "readiness": round(t.readiness, 2)} for t in threads.player_visible(th)
+                                if t.status != "resolved"],   # hidden (director-only) threads never hit the plan
                     "transcript": transcript.recent(tpath, 60),
                 })
             if u.path == "/api/graph":
@@ -111,7 +111,7 @@ def make_handler(cfg: dict):
                      "readiness": round(t.readiness, 2), "entities": t.entities, "seed": t.seed,
                      "payoff": t.payoff, "clock": t.clock, "span": t.span, "stages": t.stages,
                      "stage": t.stage, "ready_beats": t.ready_beats, "hidden": t.hidden}
-                    for t in threads.load(spath.parent / "threads.json")]})
+                    for t in threads.player_visible(threads.load(spath.parent / "threads.json"))]})
             if u.path == "/api/entities":
                 # the confabulation signal: names the narrator keeps using that aren't in canon
                 return self._send(200, {"emergent": extract.emergent(tpath, world)})
@@ -159,7 +159,7 @@ def make_handler(cfg: dict):
             if u.path == "/api/world":
                 # the symbolic-object layer: the world's tracked concrete state (a door locked, who holds an
                 # item), grouped by subject. Pure read; the narrator grounds on this but never writes it.
-                facts = world_state.load(spath)
+                facts = world_state.visible(world_state.load(spath))   # hidden facts are director-only, not shown
                 return self._send(200, {"enabled": bool(cfg.get("world_state")),
                                         "subjects": world_state.by_subject(facts), "count": len(facts)})
             if u.path == "/api/ablation":
@@ -460,13 +460,13 @@ def make_handler(cfg: dict):
                     return self._send(409, {"error": "enable world state first (⚙ Session) to track world facts"})
                 if body.get("retract"):
                     removed = world_state.remove(spath, subj, attr)
-                    return self._send(200, {"removed": removed, "subjects": world_state.by_subject(world_state.load(spath))})
+                    return self._send(200, {"removed": removed, "subjects": world_state.by_subject(world_state.visible(world_state.load(spath)))})
                 val = (body.get("value") or "").strip()
                 if not val:
                     return self._send(400, {"error": "value required (or set retract=true)"})
                 delta = world_state.set_fact(spath, subj, attr, val, source="operator")
                 return self._send(200, {"applied": delta["applied"], "old": delta["old"],
-                                        "subjects": world_state.by_subject(world_state.load(spath))})
+                                        "subjects": world_state.by_subject(world_state.visible(world_state.load(spath)))})
             if u.path == "/api/config":
                 up = {}
                 if "depth" in body:

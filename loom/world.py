@@ -210,8 +210,9 @@ def clause(facts, subjects=None, cap=40) -> str:
 
 def clause_visible(facts, subjects=None, cap=40) -> str:
     """The CHARACTER-facing grounding read — excludes HIDDEN facts before describe(), so the narrator's
-    grounding view can never STATE a fact the director alone knows. narrate._world_clause (the one in-fiction
-    reader) uses this; every other reader is operator-facing (the director console) and keeps full visibility."""
+    grounding view can never STATE a fact the director alone knows. The player-facing display layer (the 🌍
+    world panel) redacts the same via visible() — loom is single-surface, so it is player-facing too; only the
+    CLI director tools keep full visibility."""
     return clause([f for f in facts if not f.get("hidden")], subjects=subjects, cap=cap)
 
 
@@ -219,3 +220,10 @@ def clause_hidden(facts, subjects=None, cap=40) -> str:
     """The DIRECTOR-side read — ONLY hidden facts, for the foreshadow clause (Brick D). The narrator may
     FORESHADOW these (an omen, an unease) but never STATE them until a blessed reveal clears the flag."""
     return clause([f for f in facts if f.get("hidden")], subjects=subjects, cap=cap)
+
+
+def visible(facts) -> list:
+    """The world facts a PLAYER may see — hidden (director-only) facts dropped. loom is single-surface, so the
+    🌍 world panel is player-facing; a hidden fact appears only once a blessed reveal clears it. The raw-list
+    twin of clause_visible (and of threads.player_visible), for the display layer."""
+    return [f for f in facts if not f.get("hidden")]

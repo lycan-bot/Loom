@@ -142,6 +142,12 @@ class StoreTest(unittest.TestCase):
         self.assertEqual(len(facts), 1)                                              # superseded in-slot, not forked
         self.assertNotIn("hidden", facts[0])                                         # a value-change supersede clears it
 
+    def test_visible_drops_hidden_facts(self):
+        # red-team fix (Brick D census): the player-facing 🌍 world panel must not show a hidden director-only fact
+        facts = [world._clean({"subject": "gate", "attribute": "state", "value": "locked"}),
+                 world._clean({"subject": "vault", "attribute": "true nature", "value": "a tomb", "hidden": True})]
+        self.assertEqual([f["subject"] for f in world.visible(facts)], ["gate"])
+
 
 class DiodeTest(unittest.TestCase):
     """world facts fold through the same propose->apply diode as state/reputation, with provenance."""
