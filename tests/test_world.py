@@ -162,6 +162,21 @@ class StoreTest(unittest.TestCase):
                             for row in provenance.entries(sp)))         # audited as a visibility change (not a no-op)
         self.assertFalse(world.reveal(sp, "the player", "true nature")["revealed"])   # already revealed → no-op
 
+    def test_redact_hidden_provenance(self):
+        # capstone fix: a hidden fact's old→new VALUES must not surface in a player-facing 'why' view; a visible
+        # fact's history shows; once revealed, the hidden fact's history reappears.
+        sp = _sp()
+        world.set_fact(sp, "gate", "state", "locked"); world.set_fact(sp, "gate", "state", "open")   # visible change
+        world.set_fact(sp, "the player", "true nature", "a fisher", hidden=True)
+        world.set_fact(sp, "the player", "true nature", "the last sealer", hidden=True)   # hidden value-change
+        kept = world.redact_hidden_provenance(provenance.entries(sp), world.load(sp))
+        vals = [r["new"] for r in kept]
+        self.assertIn("open", vals)                                        # the visible fact's history shows…
+        self.assertNotIn("the last sealer", vals)                          # …the hidden fact's values do NOT
+        world.reveal(sp, "the player", "true nature")                      # once revealed, the history reappears
+        self.assertIn("the last sealer",
+                      [r["new"] for r in world.redact_hidden_provenance(provenance.entries(sp), world.load(sp))])
+
 
 class DiodeTest(unittest.TestCase):
     """world facts fold through the same propose->apply diode as state/reputation, with provenance."""
@@ -244,6 +259,27 @@ class DiodeTest(unittest.TestCase):
             consolidate.propose(on, [{"role": "player", "text": "hi"}], [], world=None)
             self.assertIn('"world"', cap["prompt"])                     # on → the world section is present
             self.assertIn("world", cap["schema"].get("properties", {}))
+        finally:
+            llm.complete = orig
+
+    def test_hidden_thread_not_shown_to_the_archivist(self):
+        # capstone diode fix: a director-only hidden thread must never enter the archivist prompt (else the model
+        # could name it in threads_resolved or echo its secret)
+        import loom.threads as _th
+        cap = {}
+        orig = llm.complete
+
+        def fake(prompt, cfg, **kw):
+            cap["prompt"] = prompt
+            return '{"summary": "x"}'
+
+        llm.complete = fake
+        try:
+            existing = [_th.Thread(id="secret", question="the god wakes beneath the well", hidden=True),
+                        _th.Thread(id="open", question="what haunts the mill")]
+            consolidate.propose(dict(config.DEFAULTS), [{"role": "player", "text": "hi"}], existing, world=None)
+            self.assertNotIn("the god wakes beneath the well", cap["prompt"])   # hidden thread redacted
+            self.assertIn("what haunts the mill", cap["prompt"])                # a normal open thread is shown
         finally:
             llm.complete = orig
 

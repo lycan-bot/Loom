@@ -248,3 +248,15 @@ def reveal(spath, subject, attribute) -> dict:
     provenance.log(spath, [{"kind": "world", "name": hit["subject"], "field": "visibility",
                             "old": "hidden", "new": "known", "source": "operator", "reversal": False}])
     return {"revealed": True, "subject": hit["subject"], "attribute": hit["attribute"], "value": hit["value"]}
+
+
+def redact_hidden_provenance(rows, facts):
+    """Drop provenance rows whose world fact is CURRENTLY hidden (director-only) — its old→new VALUES are the
+    secret and must not reach a player-facing 'why' view. Keyed on (subject, attribute); once the operator
+    reveals the fact (flag cleared) its full history reappears. The reveal's own row (field='visibility')
+    carries no value and never matches a still-hidden attribute, so it survives."""
+    hidden = {(_norm(f["subject"]), _norm(f["attribute"])) for f in facts if f.get("hidden")}
+    if not hidden:
+        return rows
+    return [r for r in rows if not (r.get("kind") == "world"
+                                    and (_norm(r.get("name", "")), _norm(r.get("field", ""))) in hidden)]

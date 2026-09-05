@@ -135,7 +135,8 @@ def make_handler(cfg: dict):
                 # whether it was a contradiction. Filter by ?name= (a character/fact) or the whole ledger.
                 name = (q.get("name") or [""])[0].strip()
                 rows = provenance.history(spath, name=name) if name else list(reversed(provenance.entries(spath)))
-                return self._send(200, {"name": name, "changes": rows})
+                rows = world_state.redact_hidden_provenance(rows, world_state.load(spath))   # a hidden fact's values
+                return self._send(200, {"name": name, "changes": rows})                      #   never reach the player
             if u.path == "/api/npc":
                 # the NPC's interior, COMPOSED at read time from blessed signals (the mind panel's data +
                 # player-memory when name= the PC): card + personhood rung + mood + agenda + memory of its

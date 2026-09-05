@@ -365,7 +365,8 @@ def propose(cfg: dict, session_lines: list[dict], existing_threads=None, world=N
     if cfg.get("consolidate_api_key"):
         ccfg["api_key"] = cfg["consolidate_api_key"]
     open_str = "\n".join(f"- [{t.id}] {t.question}" for t in (existing_threads or [])
-                         if getattr(t, "status", "") != "resolved") or "(none yet)"
+                         if getattr(t, "status", "") != "resolved"
+                         and not getattr(t, "hidden", False)) or "(none yet)"   # hidden = director-only, never shown
     roster_str = ("\n".join(f"- {n['name']} ({n['frontmatter'].get('kind', 'lore')})"
                             for n in canon.load_all(world)) or "(none yet)") if world is not None else "(none yet)"
     log_text = "\n".join(f"{e.get('role', '?')}: {e.get('text', '')}" for e in session_lines)
@@ -568,7 +569,10 @@ def apply(proposals: dict, world: Path, state_path: Path, approve,
             th_changed = True
     for rid in p["threads_resolved"]:
         t = by_id.get(rid)
-        if t and t.status != "resolved" and approve("resolve", rid, t.question):
+        # a HIDDEN (director-only) thread must never be resolved by consolidation — only an operator reveal()
+        # un-hides it, after which it resolves normally. Else the narrator's own prose could silently end the
+        # horizon before the reveal, and it could never fire (mirrors every other consumer of the hidden signal).
+        if t and t.status != "resolved" and not getattr(t, "hidden", False) and approve("resolve", rid, t.question):
             t.status = "resolved"
             written["resolved"].append(rid)
             th_changed = True

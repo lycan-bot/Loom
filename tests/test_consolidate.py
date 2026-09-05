@@ -77,6 +77,15 @@ class ApplyThreadsTest(unittest.TestCase):
                           camp / "state.json", approve=lambda *a: True)
         self.assertEqual(threads.load(camp / "threads.json")[0].status, "resolved")
 
+    def test_hidden_thread_is_never_resolved_by_consolidation(self):
+        # capstone diode fix: a director-only horizon must not be ended by the narrator's own prose — a hidden
+        # thread named in threads_resolved stays live (only an operator reveal() un-hides it, then it resolves).
+        camp = _camp()
+        threads.save(camp / "threads.json", [Thread("secret", "the god wakes", hidden=True)])
+        consolidate.apply({"threads_resolved": ["secret"]}, camp / "world",
+                          camp / "state.json", approve=lambda *a: True)
+        self.assertNotEqual(threads.load(camp / "threads.json")[0].status, "resolved")   # still live, not ended
+
     def test_updates_existing_node_preserving_frontmatter(self):
         camp = _camp()
         canon.write_node(camp / "world", "Mara", "A fisher.", {"kind": "character", "wants": "to leave"})
