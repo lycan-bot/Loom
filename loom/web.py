@@ -568,6 +568,22 @@ def make_handler(cfg: dict):
                 thp = spath.parent / "threads.json"
                 threads.save(thp, [x for x in threads.load(thp) if x.id != body.get("id")])
                 return self._send(200, {"ok": True})
+            if u.path == "/api/reveal":
+                # a BLESSED reveal (hidden→known) — an explicit operator write (never a narrator/model path):
+                # a hidden thread by id, or a hidden fact by subject+attribute.
+                thp = spath.parent / "threads.json"
+                if body.get("id"):
+                    t, err = threads.reveal(thp, body["id"])
+                    if err:
+                        return self._send(404, {"error": err})
+                    return self._send(200, {"ok": True, "kind": "thread", "id": t.id, "question": t.question})
+                subj, attr = (body.get("subject") or "").strip(), (body.get("attribute") or "").strip()
+                if subj and attr:
+                    r = world_state.reveal(spath, subj, attr)
+                    if not r.get("revealed"):
+                        return self._send(404, {"error": "no hidden fact matching that subject/attribute"})
+                    return self._send(200, {"ok": True, "kind": "fact", **r})
+                return self._send(400, {"error": "reveal needs a thread id, or subject+attribute"})
             return self._send(404, {"error": "not found"})
 
     return H

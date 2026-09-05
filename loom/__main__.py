@@ -15,6 +15,8 @@ Usage:
   python -m loom sleep [--yes]          advance the world between sessions (depth-gated)
   python -m loom world                  play one world round — major NPCs take their turns
   python -m loom clock "<event>" <n>    seed a countdown (add 'hidden' for a director-only horizon)
+  python -m loom reveal [id | "s" "a"]  reveal a hidden horizon (thread or fact) — the director console
+  python -m loom fact "s" "a" "v" [hidden]   set a world fact (hidden = director-only, revealed later)
   python -m loom world-show on|off      toggle showing the world round each turn during play
   python -m loom mechanics on|off       toggle the optional dice layer (impartial d20)
   python -m loom undo                    take back the last turn (also '/undo' while playing)
@@ -577,6 +579,71 @@ def cmd_clock(cfg, argv):
         print("  director-only: it ticks silently and only foreshadows, until a blessed reveal (loom reveal).")
 
 
+def cmd_fact(cfg, argv):
+    """Author a world fact — loom fact "<subject>" "<attribute>" "<value>" [hidden]. `hidden` makes it a
+    director-only fact: redacted from the narrator AND every player-facing panel until a blessed reveal —
+    the home for the player character's hidden tie to the horizon."""
+    a = argv[1:]
+    hidden = "hidden" in a
+    a = [x for x in a if x != "hidden"]
+    if len(a) < 3:
+        print('usage: loom fact "<subject>" "<attribute>" "<value>" [hidden]')
+        return
+    if not cfg.get("world_state"):
+        print("world state is OFF — 'loom world-state on' first (facts live in the world layer).")
+        return
+    _, _world, spath = _paths(cfg)
+    subject, attribute, value = a[0], a[1], " ".join(a[2:])
+    if not world_state.keyable(subject, attribute):
+        print("subject and attribute must each contain letters or numbers.")
+        return
+    delta = world_state.set_fact(spath, subject, attribute, value, source="operator", hidden=hidden)
+    tag = " (HIDDEN — director-only until revealed)" if hidden else ""
+    print(f"{'set' if delta['applied'] else 'unchanged'}: {subject} — {attribute}: {value}{tag}")
+
+
+def cmd_reveal(cfg, argv):
+    """Reveal a director-only horizon (hidden→known) — a BLESSED operator step (clock-zero makes it eligible;
+    you pick the beat it lands):
+      loom reveal                        the director console — hidden threads (eligible marked) + hidden facts
+      loom reveal <thread-id>            reveal a hidden thread (a ready clock can then fire its payoff)
+      loom reveal "<subject>" "<attr>"   reveal a hidden world fact (e.g. the PC's tie to the horizon)"""
+    _, _world, spath = _paths(cfg)
+    thp = spath.parent / "threads.json"
+    a = argv[1:]
+    if not a:                                        # the director console
+        th = threads.load(thp)
+        hidden_th = [t for t in th if getattr(t, "hidden", False)]
+        eligible = {t.id for t in threads.reveal_eligible(th)}
+        hidden_facts = [f for f in world_state.load(spath) if f.get("hidden")]
+        if not hidden_th and not hidden_facts:
+            print("nothing hidden — no director-only horizon to reveal.")
+            return
+        if hidden_th:
+            print("hidden threads (director-only):")
+            for t in hidden_th:
+                if t.id in eligible:
+                    mark = "  ← READY to reveal (clock spent)"
+                elif t.kind == "clock" and t.clock is not None:
+                    mark = f"  (clock at {t.clock})"
+                else:
+                    mark = ""
+                print(f"  · {t.id}: {t.question}{mark}")
+        if hidden_facts:
+            print("hidden facts (director-only):")
+            for f in hidden_facts:
+                print(f"  · {f['subject']} — {f['attribute']}: {f['value']}")
+        print('reveal with:  loom reveal <thread-id>   or   loom reveal "<subject>" "<attribute>"')
+        return
+    if len(a) == 1:                                  # reveal a thread by id
+        t, err = threads.reveal(thp, a[0])
+        print(f"revealed: {t.question}" if t else f"could not reveal: {err}")
+        return
+    r = world_state.reveal(spath, a[0], a[1])        # two args → reveal a fact by (subject, attribute)
+    print(f"revealed: {r['subject']} — {r['attribute']}: {r['value']}" if r.get("revealed")
+          else f"no hidden fact matching '{a[0]}' / '{a[1]}'.")
+
+
 def main(argv=None):
     argv = argv if argv is not None else sys.argv[1:]
     cfg = config.load()
@@ -613,6 +680,10 @@ def main(argv=None):
         cmd_sleep(cfg, auto="--yes" in argv)
     elif cmd == "clock" and len(argv) > 1:
         cmd_clock(cfg, argv)
+    elif cmd == "reveal":
+        cmd_reveal(cfg, argv)
+    elif cmd == "fact" and len(argv) > 1:
+        cmd_fact(cfg, argv)
     elif cmd == "generate":
         cmd_generate(cfg, seed=" ".join(a for a in argv[1:] if a != "--yes"), auto="--yes" in argv)
     elif cmd == "world":

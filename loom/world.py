@@ -116,18 +116,19 @@ def upsert(facts, subject, attribute, value, since=None, source="play", hidden=F
     if not subject or not attribute or not value or not keyable(subject, attribute):
         return clean, {"applied": False, "old": None, "new": value, "reversal": False}   # empty or unkeyable
     k = key(subject, attribute)
-    old, kept = None, []
+    old, old_hidden, kept = None, False, []
     for f in clean:
         if key(f["subject"], f["attribute"]) == k:
             old = f["value"]                                # the superseded value (last one wins if dupes)
+            old_hidden = bool(f.get("hidden"))              # …and whether the slot was director-only
         else:
             kept.append(f)
     if old is not None and old == value:
         return clean, {"applied": False, "old": old, "new": value, "reversal": False}   # no-op: unchanged
     rev = bool(old is not None and provenance.is_reversal("world", old, value))
     fact = {"subject": subject, "attribute": attribute, "value": value, "source": source or "play"}
-    if hidden:                                             # ride the DATA (the signal), not the caller — a hidden
-        fact["hidden"] = True                              # fact is redacted at the source read (clause_visible)
+    if hidden or old_hidden:                               # a hidden fact STAYS hidden across a supersede — a model/
+        fact["hidden"] = True                              # default write can never un-hide; only reveal() clears it
     if since is not None:
         try:
             fact["since"] = int(since)
@@ -227,3 +228,23 @@ def visible(facts) -> list:
     🌍 world panel is player-facing; a hidden fact appears only once a blessed reveal clears it. The raw-list
     twin of clause_visible (and of threads.player_visible), for the display layer."""
     return [f for f in facts if not f.get("hidden")]
+
+
+def reveal(spath, subject, attribute) -> dict:
+    """Blessed reveal of a HIDDEN world fact (operator-only): clear its `hidden` flag in place (value unchanged)
+    so the director-only secret becomes KNOWN — player-visible (visible() includes it) and narrator-grounded
+    (clause_visible surfaces it). Records the reveal in provenance as a VISIBILITY change (field='visibility',
+    old='hidden', new='known'), so a value-unchanged reveal is NOT suppressed by the old==new no-op guard.
+    Returns {revealed, subject, attribute, value}."""
+    st = state.load(spath)
+    facts = [c for c in (_clean(f) for f in (st.get(_KEY) or [])) if c]
+    k = key(subject, attribute)
+    hit = next((f for f in facts if key(f["subject"], f["attribute"]) == k and f.get("hidden")), None)
+    if hit is None:
+        return {"revealed": False}
+    hit.pop("hidden", None)                       # clear the flag in place → the fact becomes known/visible
+    st[_KEY] = facts
+    state.save(spath, st)
+    provenance.log(spath, [{"kind": "world", "name": hit["subject"], "field": "visibility",
+                            "old": "hidden", "new": "known", "source": "operator", "reversal": False}])
+    return {"revealed": True, "subject": hit["subject"], "attribute": hit["attribute"], "value": hit["value"]}

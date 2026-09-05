@@ -133,20 +133,34 @@ class StoreTest(unittest.TestCase):
         self.assertNotIn("hidden", world._clean({"subject": "d", "attribute": "s", "value": "x"}))
         self.assertIs(world._clean({"subject": "d", "attribute": "s", "value": "x", "hidden": True})["hidden"], True)
 
-    def test_upsert_supersede_shares_slot(self):
-        # Brick E reveal precondition: a hidden fact and its (value-changing) reveal share ONE slot, not forked
+    def test_upsert_supersede_shares_slot_and_preserves_hidden(self):
+        # a hidden fact and a later value-change share ONE (subject,attribute) slot; the supersede PRESERVES the
+        # hidden flag (a model/default upsert can NEVER un-hide — only an explicit operator reveal() clears it).
         facts, _ = world.upsert([], "the vault", "state", "sealed", hidden=True)
         self.assertIs(facts[0].get("hidden"), True)
         facts, delta = world.upsert(facts, "The Vault", "State", "open")             # norm-keyed same slot, a change
         self.assertTrue(delta["applied"]); self.assertEqual(delta["old"], "sealed")
         self.assertEqual(len(facts), 1)                                              # superseded in-slot, not forked
-        self.assertNotIn("hidden", facts[0])                                         # a value-change supersede clears it
+        self.assertIs(facts[0].get("hidden"), True)                                  # …and STILL hidden (not un-hid)
 
     def test_visible_drops_hidden_facts(self):
         # red-team fix (Brick D census): the player-facing 🌍 world panel must not show a hidden director-only fact
         facts = [world._clean({"subject": "gate", "attribute": "state", "value": "locked"}),
                  world._clean({"subject": "vault", "attribute": "true nature", "value": "a tomb", "hidden": True})]
         self.assertEqual([f["subject"] for f in world.visible(facts)], ["gate"])
+
+    def test_reveal_clears_hidden_and_logs_visibility(self):
+        # Brick E: revealing a hidden fact clears the flag IN PLACE (value unchanged) + logs a visibility row —
+        # the PC's director-only tie to the horizon becomes known/player-visible/narrator-grounded.
+        sp = _sp()
+        world.set_fact(sp, "the player", "true nature", "the last of the sealing line", hidden=True)
+        self.assertEqual(world.visible(world.load(sp)), [])              # hidden → not player-visible
+        r = world.reveal(sp, "The Player", "True Nature")               # norm-keyed
+        self.assertTrue(r["revealed"]); self.assertEqual(r["value"], "the last of the sealing line")
+        self.assertEqual([f["subject"] for f in world.visible(world.load(sp))], ["the player"])   # now visible
+        self.assertTrue(any(row["field"] == "visibility" and row["new"] == "known"
+                            for row in provenance.entries(sp)))         # audited as a visibility change (not a no-op)
+        self.assertFalse(world.reveal(sp, "the player", "true nature")["revealed"])   # already revealed → no-op
 
 
 class DiodeTest(unittest.TestCase):
@@ -189,6 +203,18 @@ class DiodeTest(unittest.TestCase):
         sp = self._apply({"world": [{"subject": "vault", "attribute": "state", "value": "open"}]},
                          approve=lambda kind, *a: kind != "world")
         self.assertEqual(world.load(sp), [])
+
+    def test_consolidation_cannot_unhide_a_fact(self):
+        # Brick E diode (write→re-read collapse): a model-sourced supersede (consolidation) of a HIDDEN fact must
+        # NOT clear its flag — else the narrator's own prose, re-read by the archivist, un-hides the secret with
+        # no operator bless. Only an explicit operator reveal() may clear it.
+        camp = Path(tempfile.mkdtemp()); (camp / "world").mkdir(); sp = camp / "state.json"
+        world.set_fact(sp, "the player", "true nature", "the last sealer", hidden=True)
+        consolidate.apply({"world": [{"subject": "the player", "attribute": "true nature", "value": "a drifter"}]},
+                          camp / "world", sp, lambda *a: True, deed_window=(0, 2), world_state=True)
+        facts = world.load(sp)
+        self.assertEqual(world.get(facts, "the player", "true nature"), "a drifter")   # value superseded…
+        self.assertEqual(world.visible(facts), [])                                     # …but STILL hidden (not un-hid)
 
     def test_object_named_key_is_not_a_placeholder(self):
         # a world subject literally 'key' must survive (unlike a state fact-name — _real_key blocklists it)

@@ -199,6 +199,24 @@ class ThreadsTest(unittest.TestCase):
         ths = [T(id="a", question="open"), T(id="b", question="secret", hidden=True), T(id="c", question="q2")]
         self.assertEqual([t.id for t in threads.player_visible(ths)], ["a", "c"])
 
+    def test_reveal_eligible_and_reveal(self):
+        # Brick E: a hidden horizon clock at 'ready' (clock spent) is eligible; reveal clears hidden + demotes scope,
+        # so the director-only thread becomes KNOWN (player-visible + can finally pay off).
+        d = Path(tempfile.mkdtemp()) / "threads.json"
+        threads.save(d, [threads.from_dict({"id": "c", "question": "the god wakes", "kind": "clock", "status": "ready",
+                                            "clock": 0, "span": 8, "hidden": True, "scope": "horizon"})])
+        th = threads.load(d)
+        self.assertEqual([t.id for t in threads.reveal_eligible(th)], ["c"])   # clock-zero → eligible
+        self.assertEqual(threads.player_visible(th), [])                       # still hidden → not player-visible
+        revealed, err = threads.reveal(d, "c")
+        self.assertIsNone(err)
+        self.assertFalse(revealed.hidden); self.assertEqual(revealed.scope, "local")   # now KNOWN, a normal thread
+        back = threads.load(d)
+        self.assertEqual([t.id for t in threads.player_visible(back)], ["c"])  # revealed → it appears to the player
+        self.assertEqual(threads.reveal_eligible(back), [])                    # and is no longer an eligible reveal
+        self.assertIsNotNone(threads.reveal(d, "c")[1])                        # re-revealing errors (already known)
+        self.assertIsNotNone(threads.reveal(d, "nope")[1])                     # unknown id errors
+
 
 if __name__ == "__main__":
     unittest.main()

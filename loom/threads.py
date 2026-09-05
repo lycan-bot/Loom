@@ -215,3 +215,27 @@ def horizon_intensity(thread_list):
         near = (1.0 - max(0, int(t.clock)) / span) if span else 0.5
         best = near if best is None else max(best, near)
     return best
+
+
+def reveal_eligible(thread_list):
+    """The hidden horizon clocks whose countdown has finished (status 'ready') — the reveals AWAITING the
+    operator's confirm. Clock-zero makes a reveal ELIGIBLE; the operator picks the beat it lands, never an
+    auto-fire. A subset of horizon_clocks at status='ready'."""
+    return [t for t in horizon_clocks(thread_list) if getattr(t, "status", "") == "ready"]
+
+
+def reveal(path, tid):
+    """Blessed reveal of a HIDDEN thread (operator-only, no model in the loop): clear its hidden flag and
+    demote scope horizon→local, so the director-only thread becomes KNOWN — it now appears in the player's
+    plan/quest-book (player_visible includes it) and, if a ready clock, can finally fire its payoff (Brick A
+    excluded a hidden thread from every stating beat; a revealed one is a normal thread). Returns (thread, err)."""
+    current = load(path)
+    hit = next((t for t in current if t.id == tid), None)
+    if hit is None:
+        return None, "no thread '" + str(tid) + "'"
+    if not hit.hidden:
+        return None, "thread '" + str(tid) + "' is already known (not hidden)"
+    hit.hidden = False
+    hit.scope = "local"
+    save(path, current)
+    return hit, None
