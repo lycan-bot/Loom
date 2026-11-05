@@ -41,6 +41,7 @@ DEFAULTS = {
     "tension_baseline": 0.15, # a campaign's resting dramatic tension (cozy 0.05 … grim 0.35)
     "tension_decay":    0.7,  # how slowly tension returns to baseline after a climax
     "mechanics":        False, # opt-in dice: uncertain actions decided by an impartial d20
+    "rpg_mode":         False, # the D&D-mode spine: character sheets (abilities/skills/HP) colour narration + feed skill-check resolution (off → byte-identical)
     "depth":            0.0,   # the realness dial: 0 = mirror (referee off) … 1 = other (strict spine)
     "sleep_beats":      4,     # world-time that passes per 'sleep' pass, scaled by depth (0 at depth 0)
     "sleep_moves":      2,     # how many characters take a step toward their want per sleep (depth-scaled)
